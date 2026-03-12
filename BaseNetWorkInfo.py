@@ -64,7 +64,7 @@ def get_jitter_quality(jitter: float) -> JitterQuality:
 
 
 def get_network_status(host="8.8.8.8", count=5): # count is the number of pings also 8.8.8.8 host is just google 
-    #(host = "youtube.com", count 5)
+    #(host = "youtube.com", count=5)
     #Windows system ping that pings the host 5 times -n is number command 
     result = subprocess.run(["ping", host, "-n", str(count)],
                             
@@ -115,3 +115,4 @@ def get_network_status(host="8.8.8.8", count=5): # count is the number of pings 
 @app.get("/network")
 def network_info():
     return get_network_status()
+
