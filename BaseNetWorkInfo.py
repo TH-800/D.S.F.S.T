@@ -1,6 +1,6 @@
 #commands for fast api setup
 #pip install fastapi uvicorn or  pip install "fastapi[standard]" for installing fastAPI via vscode 
-#python -m fastapi dev BaseNetWorkInfo.py for running the server also make sure you cd into the directory that has the main.py
+#python -m fastapi dev BaseNetWorkInfo.py for running the server also make sure you cd into the directory that has the BaseNetWorkInfo.py
 
 
 from fastapi import FastAPI
@@ -115,4 +115,5 @@ def get_network_status(host="8.8.8.8", count=5): # count is the number of pings 
 @app.get("/network")
 def network_info():
     return get_network_status()
+
 
