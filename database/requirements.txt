@@ -1,0 +1,3 @@
+pymongo
+influxdb-client
+python-dotenv
