@@ -76,7 +76,7 @@ def get_network_status(host="8.8.8.8", count=5): # count is the number of pings 
     #Pinging 8.8.8.8 with 32 bytes of data:
     #Reply from 8.8.8.8: bytes=32 time=15ms TTL=116
     
-    times = [int(x) for x in re.findall(r"time=(\d+)", output)]
+    times = [int(x) for x in re.findall(r"time=(\d+)", output)] # the output variable is telling regex to search inside of that variable 
     # regex expression variable list to basically rip out time from the stdout and store it in there
     
     if not times:
@@ -115,5 +115,6 @@ def get_network_status(host="8.8.8.8", count=5): # count is the number of pings 
 @app.get("/network")
 def network_info():
     return get_network_status()
+
 
 
