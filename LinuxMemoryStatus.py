@@ -26,7 +26,7 @@ def get_memory_status(container_id="LinuxMachineHere"):
     memory_used_mb = round(memory.used / (1024 * 1024), 2) # rounding up the amount of memory we get into 
     memory_percent = memory.percent # returns the total percent of memory
 
-    timestamp = datetime.utcnow().isoformat() # using datetime to get the current time
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") # using datetime to get the current time
     # from the system and then formatting it yyyy-mm-dd and then hour,minutes and seconds
 
     # json return format
