@@ -157,7 +157,7 @@ def get_network_status(host="8.8.8.8", count=5):
     # vibe coded function and variable 
     throughput_kbps = get_network_throughput()
 
-    timestamp = datetime.utcnow().isoformat()# using datetime to get the current time
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")# using datetime to get the current time
     # from the system and then formatting it yyyy-mm-dd and then hour,minutes and seconds
 
     return {
