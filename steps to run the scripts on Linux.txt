@@ -1,0 +1,40 @@
+steps to run the scripts on Linux 
+
+sudo apt update
+
+sudo apt install -y python3 python3-pip curl sudo
+
+
+pip3 install --user "fastapi[standard]"
+
+# Find the primary interface name (usually "ens33" or "eth0")
+ip a
+
+# setup visudo to ignore password prompts when running the script
+#run which tc and should return yourusername ALL=(ALL) NOPASSWD: /usr/sbin/tc
+
+#add this to visudo at the end between these lines 
+sudo visudo
+yourusername ALL=(ALL) NOPASSWD: /usr/sbin/tc
+
+--------------------------------------
+# User privilege specification
+root    ALL=(ALL:ALL) ALL
+
+# Members of the admin group may gain root privileges
+%admin ALL=(ALL) ALL
+
+# Allow members of group sudo to execute any command
+%sudo   ALL=(ALL:ALL) ALL
+
+test ALL=(ALL) NOPASSWD: /usr/sbin/tc
+# See sudoers(5) for more information on "@include" directives:
+
+@includedir /etc/sudoers.d
+----------------------------------------
+
+# Start the network info API on port 8000 or port 8001 or port 8002 basically run the scripts on separate ports
+#and update the directory of the scripts 
+python3 -m fastapi dev backend/BaseNetworkInfo.py
+python3 -m fastapi dev injectionScripts/NetworkLatencyInjection.py
+# then go to 127.0.0.1:8000/docs#/default/network_info_network_get for working with the script and json prompts via a gui
