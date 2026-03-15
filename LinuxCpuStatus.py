@@ -22,7 +22,7 @@ def get_cpu_status(container_id="LinuxMachineHere"): # update here when docker i
     cpu_usage = psutil.cpu_percent(interval=1) # the psutill command is a fine ol cross platform bit of syntax for
     # cross platform cpu reading also it reads the cpu percentage of use every 1 or so seconds i think
 
-    timestamp = datetime.utcnow().isoformat() # using datetime to get the current time
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")# using datetime to get the current time
     # from the system and then formatting it yyyy-mm-dd and then hour,minutes and seconds
 
     # json return format
