@@ -6,10 +6,19 @@
 # python -m fastapi dev PacketLossInjection.py
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import subprocess  # for running external shell commands
 from datetime import datetime
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 NETWORK_INTERFACE = "ens33"  # First ethernet interface; change if different
 CONTAINER_ID = "LinuxMachineHere"

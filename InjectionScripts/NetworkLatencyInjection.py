@@ -1,8 +1,17 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import subprocess
 from datetime import datetime
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # SET YOUR INTERFACE MANUALLY OR USE DYNAMIC DETECTION
 NETWORK_INTERFACE = "ens33"  # ens33 is the first ethernet interface; change if different

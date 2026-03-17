@@ -6,12 +6,21 @@
 #sudo apt install stress-ng 
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import subprocess # import for running external commands via python 
 # so we can pass shell commands to the console 
 import os # import for working with system level operations 
 from datetime import datetime
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 CONTAINER_ID = "LinuxMachineHere"
 

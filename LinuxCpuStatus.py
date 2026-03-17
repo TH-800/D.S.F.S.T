@@ -3,10 +3,19 @@
 #python -m fastapi dev LinuxCpuStatus.py
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 import psutil # import for reading processes,cpu,memory and system data and etc
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():
@@ -36,3 +45,4 @@ def get_cpu_status(container_id="LinuxMachineHere"): # update here when docker i
 @app.get("/cpu")
 def cpu_info():
     return get_cpu_status()
+

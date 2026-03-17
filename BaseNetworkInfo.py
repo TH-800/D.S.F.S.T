@@ -3,10 +3,19 @@
 #python -m fastapi dev BaseNetworkInfo.py
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from enum import Enum
 from datetime import datetime
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():
@@ -183,3 +192,4 @@ def get_network_status(host="8.8.8.8", count=5):
 @app.get("/network")
 def network_info():
     return get_network_status()
+
