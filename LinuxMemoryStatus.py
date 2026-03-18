@@ -1,11 +1,11 @@
-#commands for fast api setup
-#pip install fastapi uvicorn psutil
-#python -m fastapi dev LinuxMemoryStatus.py
+# commands for fast api setup
+# pip install fastapi uvicorn psutil
+# python -m fastapi dev LinuxMemoryStatus.py
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-import psutil # import for reading processes,cpu,memory and system data and etc
+import psutil  # import for reading processes, cpu, memory and system data and etc
 
 app = FastAPI()
 
@@ -29,13 +29,13 @@ def get_memory_status(container_id="LinuxMachineHere"):
     # so when docker is setup it can dynamically change via the GUI for what machine 
     # the script is gonna run on 
 
-    memory = psutil.virtual_memory() # the psutill command is a fine ol cross platform bit of syntax for
+    memory = psutil.virtual_memory()  # the psutil command is a fine ol cross platform bit of syntax for
     # cross platform memory reading also it reads the amount of memory/ram in the system 
 
-    memory_used_mb = round(memory.used / (1024 * 1024), 2) # rounding up the amount of memory we get into 
-    memory_percent = memory.percent # returns the total percent of memory
+    memory_used_mb = round((memory.total - memory.available) / (1024 * 1024), 2)  # rounding up the amount of memory we get  
+    memory_percent = memory.percent  # returns the total percent of memory
 
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") # using datetime to get the current time
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")  # using datetime to get the current time
     # from the system and then formatting it yyyy-mm-dd and then hour,minutes and seconds
 
     # json return format
@@ -50,4 +50,3 @@ def get_memory_status(container_id="LinuxMachineHere"):
 @app.get("/memory")
 def memory_info():
     return get_memory_status()
-
