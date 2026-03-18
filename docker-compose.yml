@@ -1,6 +1,7 @@
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:6.0.13
+    platform: linux/amd64
     container_name: dsfst-mongodb
     ports:
       - "27017:27017"
@@ -9,6 +10,7 @@ services:
 
   influxdb:
     image: influxdb:2.7
+    platform: linux/amd64
     container_name: dsfst-influxdb
     ports:
       - "8086:8086"
@@ -16,7 +18,8 @@ services:
       - influxdb_data:/var/lib/influxdb2
 
   redis:
-    image: redis:7
+    image: redis:7.2.4-bookworm
+    platform: linux/amd64
     container_name: dsfst-redis
     ports:
       - "6379:6379"
