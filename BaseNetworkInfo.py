@@ -113,9 +113,9 @@ def get_network_throughput():
 
 
 # count is the number of pings also 8.8.8.8 host is just google 
-# the host will might be changed to be the docker container in the future
+# the host will and might be changed to be the docker container in the future
 # that means the host that gets pinged should have its variable docker host
-# adress get changed from the GUI
+# address get changed from the GUI
 def get_network_status(host="8.8.8.8", count=5):
 
     #Linux system ping that pings the host 5 times -c is count command btw
