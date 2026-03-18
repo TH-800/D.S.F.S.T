@@ -60,7 +60,11 @@ function getStatusClasses(status: string) {
 // formats an ISO timestamp into something more readable
 function formatTime(ts: string) {
   try {
-    const d = new Date(ts);
+    let isoStr = ts;
+    if (!ts.includes("T") && !ts.includes("Z")) {
+      isoStr = ts.replace(" ", "T") + "Z";
+    }
+    const d = new Date(isoStr);
     return d.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
@@ -301,7 +305,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-muted-foreground text-xs">Pings</p>
-                    <p className="font-medium">{netData.pings}</p>
+                    <p className="font-medium">{Array.isArray(netData.pings) ? netData.pings.length : netData.pings}</p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -328,3 +332,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

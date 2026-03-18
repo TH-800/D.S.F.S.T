@@ -50,7 +50,7 @@ export interface MemoryData {
 // what we get from /network
 export interface NetworkData {
   host: string;
-  pings: number;
+  pings: number[];
   average_latency_ms: number;
   latency_quality: string;
   jitter_ms: number;
@@ -111,7 +111,7 @@ export function getMockNetworkData(): NetworkData {
 
   return {
     host: "10.0.0.1",
-    pings: 10,
+    pings: [latency + randomBetween(-3, 3), latency + randomBetween(-3, 3), latency + randomBetween(-3, 3), latency + randomBetween(-3, 3), latency + randomBetween(-3, 3)],
     average_latency_ms: latency,
     latency_quality: latencyQuality,
     jitter_ms: jitter,
@@ -196,3 +196,4 @@ export async function resetNetwork() {
   if (!res.ok) throw new Error("Failed to reset network");
   return res.json();
 }
+
