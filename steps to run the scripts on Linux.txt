@@ -12,6 +12,8 @@ ip a
 
 # setup visudo to ignore password prompts when running the script
 #run which tc and should return yourusername ALL=(ALL) NOPASSWD: /usr/sbin/tc
+#also add this for stress ng
+yourusername ALL=(ALL) NOPASSWD: /usr/bin/pkill
 
 #add this to visudo at the end between these lines 
 sudo visudo
@@ -28,6 +30,8 @@ root    ALL=(ALL:ALL) ALL
 %sudo   ALL=(ALL:ALL) ALL
 
 test ALL=(ALL) NOPASSWD: /usr/sbin/tc
+test ALL=(ALL) NOPASSWD: /usr/bin/pkill
+
 # See sudoers(5) for more information on "@include" directives:
 
 @includedir /etc/sudoers.d
