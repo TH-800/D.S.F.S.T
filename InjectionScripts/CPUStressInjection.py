@@ -37,12 +37,14 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
     if cpu_percent < 1 or cpu_percent > 65:
         return {"error": "CPU load must be between 1% and 65% to prevent host failure"}
 
-    cpu_cores = os.cpu_count()
+    cpu_cores = os.cpu_count() or 1 #small fix so incase somehow there are like 0 cpu cores it defaults 1 without breaking anything i hope
+    
     # gets the number of cpu cores and divides them into a percentage 
-    workers = max(1, int(cpu_cores * (cpu_percent / 100)))
+    workers = max(1, round(cpu_cores * (cpu_percent / 100)))
 
     # commands stored in a list string variable so they can be executed in the
     # shell when the script runs which then runs the requested CPU stress
+    # and then shoves the stress into one or more of the cpu cores over loading them
     command = [
         "stress-ng", # stress test a system component which also needs the apt install
         "--cpu",
@@ -51,8 +53,13 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
         f"{duration}s"
     ]
 
-    # Start stress test asynchronously and keep it alive independently
-    subprocess.Popen(command, start_new_session=True)#injects the command 
+    # Start stress test
+    try:
+        subprocess.Popen(command, start_new_session=True)#injects the command 
+    except FileNotFoundError:
+        return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
+    except Exception as error:
+        return {"error": str(error)}
 
     return {
         "container_id": CONTAINER_ID,
