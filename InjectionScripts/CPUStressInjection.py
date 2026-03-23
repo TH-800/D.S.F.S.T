@@ -24,6 +24,9 @@ app.add_middleware(
 
 CONTAINER_ID = "LinuxMachineHere"
 
+# 🔥 track cpu stress process so we dont kill all stress-ng processes
+cpu_process = None
+
 @app.get("/")
 def read_root():
     return {"message": "CPU Stress Injection API"}
@@ -33,9 +36,18 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
    # cpu_percent: 1-65% recommended
    # duration: in seconds
 
+    global cpu_process
+
     # Prevent overloading host machine
     if cpu_percent < 1 or cpu_percent > 65:
         return {"error": "CPU load must be between 1% and 65% to prevent host failure"}
+
+    if duration < 1 or duration > 300:
+        return {"error": "Duration must be between 1 and 300 seconds"}
+
+    # prevents multiple cpu stress injections at once
+    if cpu_process and cpu_process.poll() is None:
+        return {"error": "CPU stress already running"}
 
     cpu_cores = os.cpu_count() or 1 #small fix so incase somehow there are like 0 cpu cores it defaults 1 without breaking anything i hope
     
@@ -55,7 +67,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     # Start stress test
     try:
-        subprocess.Popen(command, start_new_session=True)#injects the command 
+        cpu_process = subprocess.Popen(command)#injects the command and stores the process
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
     except Exception as error:
@@ -76,7 +88,14 @@ def api_cpu_stress(cpu_percent: int, duration: int = 30):
 @app.post("/reset/cpu")
 def reset_cpu_stress():
     
-    #Stops all stress-ng CPU workers.
+    #Stops only the current stress-ng CPU worker instead of all of them
     
-    subprocess.run(["sudo", "pkill", "-f", "stress-ng"], check=True)
-    return {"message": "CPU stress stopped"}
+    global cpu_process
+
+    if cpu_process and cpu_process.poll() is None:
+        cpu_process.terminate()
+        cpu_process.wait(timeout=5)
+        cpu_process = None
+        return {"message": "CPU stress stopped"}
+
+    return {"message": "No CPU stress running"}
