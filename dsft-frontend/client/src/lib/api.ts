@@ -7,6 +7,8 @@
 //   - CPUstressInjection.py (cpu stress injection) -> port 8004
 //   - NetworkLatencyInjection.py (latency injection) -> port 8005
 //   - PacketLossInjection.py (packet loss injection) -> port 8006
+//   - MemoryStressInjection.py (memory stress injection) -> port 8007
+//   - ExperimentMonitor.py (experiment monitor) -> port 8000
 // when the backend scripts arent running we fall back to mock data so the demo still works
 
 // base host for all the FastAPI scripts - they all run on the same machine just different ports
@@ -22,6 +24,8 @@ const PORTS = {
   cpuInject: 8004,  // CPUstressInjection.py --port 8004
   latencyInject: 8005, // NetworkLatencyInjection.py --port 8005
   packetLossInject: 8006, // PacketLossInjection.py --port 8006
+  memoryInject: 8007, // MemoryStressInjection.py --port 8007
+  monitor: 8000,      // ExperimentMonitor.py --port 8000
 } as const;
 
 // helper to build the full URL for a given service
@@ -60,6 +64,50 @@ export interface NetworkData {
   packet_loss_percent: number;
   throughput_kbps: number;
   timestamp: string;
+}
+
+// what we get from ExperimentMonitor.py /health endpoint
+export interface HealthData {
+  status: string;
+  service: string;
+  timestamp: string;
+}
+
+// individual service info from the /status endpoint
+export interface ServiceInfo {
+  script: string;
+  port: number;
+  online: boolean;
+  is_injection_service: boolean;
+  pid?: number;
+}
+
+// active experiment detected by the monitor
+export interface ActiveExperiment {
+  experiment_id: string;
+  type: string;
+  source: string;
+  pid?: number;
+  intensity?: string;
+  interface?: string;
+  params?: Record<string, string>;
+  started_at?: string;
+  state: string;
+}
+
+// full status response from ExperimentMonitor.py /status endpoint
+export interface StatusData {
+  state: "idle" | "running" | "stopping" | "complete";
+  timestamp: string;
+  services: Record<string, ServiceInfo>;
+  active_experiments?: ActiveExperiment[];
+  stopping_experiments?: { script: string; port: number; pid: number }[];
+  summary: {
+    total_active_experiments: number;
+    services_online: number;
+    injection_services_online: number;
+  };
+  message?: string;
 }
 
 // --- mock data generators ---
@@ -124,6 +172,38 @@ export function getMockNetworkData(): NetworkData {
   };
 }
 
+// generates fake health data for the experiment monitor
+export function getMockHealthData(): HealthData {
+  return {
+    status: "ok",
+    service: "ExperimentMonitor",
+    timestamp: getCurrentTimestamp(),
+  };
+}
+
+// generates fake status data showing the machine state
+export function getMockStatusData(): StatusData {
+  return {
+    state: "idle",
+    timestamp: getCurrentTimestamp(),
+    services: {
+      "8001": { script: "BaseNetworkInfo.py", port: 8001, online: true, is_injection_service: false },
+      "8002": { script: "LinuxCpuStatus.py", port: 8002, online: true, is_injection_service: false },
+      "8003": { script: "LinuxMemoryStatus.py", port: 8003, online: true, is_injection_service: false },
+      "8004": { script: "CPUStressInjection.py", port: 8004, online: true, is_injection_service: true },
+      "8005": { script: "NetworkLatencyInjection.py", port: 8005, online: true, is_injection_service: true },
+      "8006": { script: "PacketLossInjection.py", port: 8006, online: true, is_injection_service: true },
+      "8007": { script: "MemoryStressInjection.py", port: 8007, online: true, is_injection_service: true },
+    },
+    summary: {
+      total_active_experiments: 0,
+      services_online: 7,
+      injection_services_online: 4,
+    },
+    message: "No injection services running. System is idle.",
+  };
+}
+
 // --- actual API calls to the FastAPI backend scripts ---
 // each function hits the correct port for the script that handles that endpoint
 
@@ -145,6 +225,20 @@ export async function fetchMemoryData(): Promise<MemoryData> {
 export async function fetchNetworkData(): Promise<NetworkData> {
   const res = await fetch(`${getUrl("network")}/network`);
   if (!res.ok) throw new Error("Failed to fetch network data");
+  return res.json();
+}
+
+// fetches health check from ExperimentMonitor.py running on port 8000
+export async function fetchHealthData(): Promise<HealthData> {
+  const res = await fetch(`${getUrl("monitor")}/health`);
+  if (!res.ok) throw new Error("Failed to fetch health data");
+  return res.json();
+}
+
+// fetches full machine status from ExperimentMonitor.py running on port 8000
+export async function fetchStatusData(): Promise<StatusData> {
+  const res = await fetch(`${getUrl("monitor")}/status`);
+  if (!res.ok) throw new Error("Failed to fetch status data");
   return res.json();
 }
 
@@ -179,6 +273,16 @@ export async function injectPacketLoss(lossPercent: number) {
   return res.json();
 }
 
+// sends a memory stress injection request to MemoryStressInjection.py on port 8007
+export async function injectMemoryStress(memoryMb: number, duration: number) {
+  const res = await fetch(
+    `${getUrl("memoryInject")}/inject/memory?memory_mb=${memoryMb}&duration=${duration}`,
+    { method: "POST" }
+  );
+  if (!res.ok) throw new Error("Failed to inject memory stress");
+  return res.json();
+}
+
 // --- reset endpoints ---
 // resets go to the same script that started the injection
 
@@ -194,6 +298,13 @@ export async function resetCpu() {
 export async function resetNetwork() {
   const res = await fetch(`${getUrl("latencyInject")}/reset/network`, { method: "POST" });
   if (!res.ok) throw new Error("Failed to reset network");
+  return res.json();
+}
+
+// resets memory stress by calling the reset endpoint on MemoryStressInjection.py (port 8007)
+export async function resetMemory() {
+  const res = await fetch(`${getUrl("memoryInject")}/reset/memory`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to reset memory");
   return res.json();
 }
 

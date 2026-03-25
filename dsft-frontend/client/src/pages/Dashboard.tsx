@@ -7,19 +7,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Cpu, MemoryStick, Wifi, Clock } from "lucide-react";
+import { Cpu, MemoryStick, Wifi, Clock, Activity, Server } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useAppState } from "@/lib/store";
 import {
   getMockCpuData,
   getMockMemoryData,
   getMockNetworkData,
+  getMockHealthData,
+  getMockStatusData,
   fetchCpuData,
   fetchMemoryData,
   fetchNetworkData,
+  fetchHealthData,
+  fetchStatusData,
   type CpuData,
   type MemoryData,
   type NetworkData,
+  type HealthData,
+  type StatusData,
 } from "@/lib/api";
 
 // figures out what color to show based on a percentage value
@@ -82,6 +88,8 @@ export default function Dashboard() {
   const [cpuData, setCpuData] = useState<CpuData | null>(null);
   const [memData, setMemData] = useState<MemoryData | null>(null);
   const [netData, setNetData] = useState<NetworkData | null>(null);
+  const [healthData, setHealthData] = useState<HealthData | null>(null);
+  const [statusData, setStatusData] = useState<StatusData | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
@@ -91,19 +99,25 @@ export default function Dashboard() {
       setError(null);
       if (isLiveMode) {
         // try to hit the actual FastAPI endpoints
-        const [cpu, mem, net] = await Promise.all([
+        const [cpu, mem, net, health, status] = await Promise.all([
           fetchCpuData(),
           fetchMemoryData(),
           fetchNetworkData(),
+          fetchHealthData(),
+          fetchStatusData(),
         ]);
         setCpuData(cpu);
         setMemData(mem);
         setNetData(net);
+        setHealthData(health);
+        setStatusData(status);
       } else {
         // just generate some fake numbers
         setCpuData(getMockCpuData());
         setMemData(getMockMemoryData());
         setNetData(getMockNetworkData());
+        setHealthData(getMockHealthData());
+        setStatusData(getMockStatusData());
       }
       setLastUpdate(new Date().toISOString());
 
@@ -120,6 +134,8 @@ export default function Dashboard() {
       setCpuData(getMockCpuData());
       setMemData(getMockMemoryData());
       setNetData(getMockNetworkData());
+      setHealthData(getMockHealthData());
+      setStatusData(getMockStatusData());
       setLastUpdate(new Date().toISOString());
 
       addLog({
@@ -322,6 +338,103 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* --- system status section from ExperimentMonitor --- */}
+      {statusData && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* system state card */}
+          <Card data-testid="card-system-status">
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">System Status</CardTitle>
+              <div className="p-2 rounded-md bg-muted">
+                <Activity className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold capitalize">{statusData.state}</span>
+                  {/* colored badge based on the machine state */}
+                  <Badge
+                    className={
+                      statusData.state === "idle"
+                        ? "bg-gray-500/10 text-gray-500 border-gray-500/20"
+                        : statusData.state === "running"
+                          ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                          : statusData.state === "stopping"
+                            ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                            : "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                    }
+                  >
+                    {statusData.state}
+                  </Badge>
+                </div>
+                {statusData.message && (
+                  <p className="text-xs text-muted-foreground">{statusData.message}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* services overview card */}
+          <Card data-testid="card-services">
+            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Services</CardTitle>
+              <div className="p-2 rounded-md bg-muted">
+                <Server className="h-4 w-4" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-muted-foreground text-xs">Online</p>
+                    <p className="font-medium">
+                      {statusData.summary.services_online} / {Object.keys(statusData.services).length}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Injection Services</p>
+                    <p className="font-medium">{statusData.summary.injection_services_online}</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* show active experiments from the monitor if there are any */}
+      {statusData?.active_experiments && statusData.active_experiments.length > 0 && (
+        <Card data-testid="card-active-experiments">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">
+              Active Experiments ({statusData.active_experiments.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {statusData.active_experiments.map((exp) => (
+                <div
+                  key={exp.experiment_id}
+                  className="flex items-center justify-between p-2 rounded-md border bg-card text-sm"
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">{exp.type}</Badge>
+                    <span className="font-medium">{exp.source}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {exp.intensity && <span>Intensity: {exp.intensity}</span>}
+                    <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                      {exp.state}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* last update time at the bottom */}
       {lastUpdate && (

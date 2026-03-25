@@ -10,7 +10,7 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 export interface Experiment {
   id: string;
   name: string;
-  type: "cpu" | "latency" | "packet_loss";
+  type: "cpu" | "latency" | "packet_loss" | "memory";
   status: "running" | "stopped" | "completed";
   params: Record<string, number>; // like { cpuPercent: 50, duration: 30 }
   startedAt: string;
@@ -29,7 +29,7 @@ export interface LogEntry {
 export interface Report {
   id: string;
   experimentName: string;
-  type: "cpu" | "latency" | "packet_loss";
+  type: "cpu" | "latency" | "packet_loss" | "memory";
   duration: string;
   completedAt: string;
   metrics: {

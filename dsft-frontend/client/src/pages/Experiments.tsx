@@ -15,19 +15,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Play, Square, Cpu, Wifi, AlertTriangle } from "lucide-react";
+import { Play, Square, Cpu, Wifi, AlertTriangle, MemoryStick } from "lucide-react";
 import { useAppState, type Experiment } from "@/lib/store";
 import {
   injectCpuStress,
   injectLatency,
   injectPacketLoss,
+  injectMemoryStress,
   resetCpu,
   resetNetwork,
+  resetMemory,
 } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
-// the different injection types we support
-type InjectionType = "cpu" | "latency" | "packet_loss";
+// the different injection types we support (now includes memory stress)
+type InjectionType = "cpu" | "latency" | "packet_loss" | "memory";
 
 // helper to generate a simple id
 function makeId(): string {
@@ -58,6 +60,8 @@ export default function Experiments() {
   const [cpuDuration, setCpuDuration] = useState(30);
   const [latencyDelay, setLatencyDelay] = useState(100);
   const [packetLossPercent, setPacketLossPercent] = useState(10);
+  const [memoryMb, setMemoryMb] = useState(512);
+  const [memoryDuration, setMemoryDuration] = useState(30);
   const [isStarting, setIsStarting] = useState(false);
 
   // starts a new experiment based on the current form values
@@ -75,9 +79,12 @@ export default function Experiments() {
     } else if (injectionType === "latency") {
       name = `Latency Injection - ${latencyDelay}ms`;
       params = { delayMs: latencyDelay };
-    } else {
+    } else if (injectionType === "packet_loss") {
       name = `Packet Loss - ${packetLossPercent}%`;
       params = { lossPercent: packetLossPercent };
+    } else if (injectionType === "memory") {
+      name = `Memory Stress - ${memoryMb}MB`;
+      params = { memoryMb, duration: memoryDuration };
     }
 
     const exp: Experiment = {
@@ -92,12 +99,26 @@ export default function Experiments() {
     // if we're in live mode, actually call the backend
     if (isLiveMode) {
       try {
+        let result: any;
         if (injectionType === "cpu") {
-          await injectCpuStress(cpuPercent, cpuDuration);
+          result = await injectCpuStress(cpuPercent, cpuDuration);
         } else if (injectionType === "latency") {
-          await injectLatency(latencyDelay);
-        } else {
-          await injectPacketLoss(packetLossPercent);
+          result = await injectLatency(latencyDelay);
+        } else if (injectionType === "packet_loss") {
+          result = await injectPacketLoss(packetLossPercent);
+        } else if (injectionType === "memory") {
+          result = await injectMemoryStress(memoryMb, memoryDuration);
+        }
+        // check if backend returned an error (e.g. "CPU stress already running")
+        // the backend returns { error: "..." } with a 200 status, not a thrown error
+        if (result && result.error) {
+          toast({
+            title: "Cannot start experiment",
+            description: result.error,
+            variant: "destructive",
+          });
+          setIsStarting(false);
+          return;
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -135,6 +156,8 @@ export default function Experiments() {
       try {
         if (exp.type === "cpu") {
           await resetCpu();
+        } else if (exp.type === "memory") {
+          await resetMemory();
         } else {
           // both latency and packet loss use the network reset
           await resetNetwork();
@@ -183,6 +206,8 @@ export default function Experiments() {
         return <Wifi className="h-4 w-4" />;
       case "packet_loss":
         return <AlertTriangle className="h-4 w-4" />;
+      case "memory":
+        return <MemoryStick className="h-4 w-4" />;
       default:
         return null;
     }
@@ -220,6 +245,7 @@ export default function Experiments() {
                   <SelectItem value="cpu">CPU Stress</SelectItem>
                   <SelectItem value="latency">Network Latency</SelectItem>
                   <SelectItem value="packet_loss">Packet Loss</SelectItem>
+                  <SelectItem value="memory">Memory Stress</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -268,6 +294,36 @@ export default function Experiments() {
                   data-testid="input-latency-delay"
                 />
               </div>
+            )}
+
+            {/* memory-specific inputs */}
+            {injectionType === "memory" && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="memory-mb">Memory (64-4096 MB)</Label>
+                  <Input
+                    id="memory-mb"
+                    type="number"
+                    min={64}
+                    max={4096}
+                    value={memoryMb}
+                    onChange={(e) => setMemoryMb(Number(e.target.value))}
+                    data-testid="input-memory-mb"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="memory-duration">Duration (seconds)</Label>
+                  <Input
+                    id="memory-duration"
+                    type="number"
+                    min={1}
+                    max={300}
+                    value={memoryDuration}
+                    onChange={(e) => setMemoryDuration(Number(e.target.value))}
+                    data-testid="input-memory-duration"
+                  />
+                </div>
+              </>
             )}
 
             {/* packet loss input */}
