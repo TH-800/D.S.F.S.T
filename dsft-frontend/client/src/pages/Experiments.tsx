@@ -2,7 +2,7 @@
 // you pick what kind of failure to inject, set the params, and hit start
 // it also shows a list of all the experiments youve run so far
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,17 @@ export default function Experiments() {
   const [memoryMb, setMemoryMb] = useState(512);
   const [memoryDuration, setMemoryDuration] = useState(30);
   const [isStarting, setIsStarting] = useState(false);
+
+  // keeps track of auto-complete timers so we can cancel them if the user stops early
+  // key = experiment id, value = the timeout handle
+  const autoCompleteTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // cleanup all timers when the component unmounts so we dont leak memory
+  useEffect(() => {
+    return () => {
+      Object.values(autoCompleteTimers.current).forEach(clearTimeout);
+    };
+  }, []);
 
   // starts a new experiment based on the current form values
   async function handleStart() {
@@ -143,6 +154,26 @@ export default function Experiments() {
       message: `Started experiment: ${name}`,
     });
 
+    // if the experiment has a duration, set a timer to auto-complete it
+    // this way the frontend knows when stress-ng finishes on the backend
+    // without the user having to manually click stop
+    const duration = params.duration;
+    if (duration && duration > 0) {
+      const timerId = setTimeout(() => {
+        const completedAt = new Date().toISOString();
+        updateExperiment(exp.id, { status: "completed", stoppedAt: completedAt });
+        addLog({
+          timestamp: completedAt,
+          eventType: "injection_stopped",
+          message: `Experiment auto-completed after ${duration}s: ${name}`,
+        });
+        // clean up the timer reference
+        delete autoCompleteTimers.current[exp.id];
+      }, duration * 1000); // convert seconds to milliseconds
+
+      autoCompleteTimers.current[exp.id] = timerId;
+    }
+
     toast({ title: "Experiment started", description: name });
     setIsStarting(false);
   }
@@ -170,6 +201,13 @@ export default function Experiments() {
           variant: "destructive",
         });
       }
+    }
+
+    // if there was an auto-complete timer running for this experiment, cancel it
+    // since the user manually stopped it before the duration ran out
+    if (autoCompleteTimers.current[exp.id]) {
+      clearTimeout(autoCompleteTimers.current[exp.id]);
+      delete autoCompleteTimers.current[exp.id];
     }
 
     // update the experiment status in our state
