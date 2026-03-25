@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import subprocess
 from datetime import datetime
-
+import os
 app = FastAPI()
 
 app.add_middleware(
@@ -50,13 +50,22 @@ def inject_memory_stress(memory_mb: int, duration: int):
 
     # commands stored in a list string variable so they can be executed in the
     # shell when the script runs which then runs the requested memory stress
-    # stress-ng --vm 1 --vm-bytes 1024M --timeout 30s --vm-keep remove this comment later 
+    # stress-ng --vm 1 --vm-bytes 1024M --timeout 30s --vm-keep remove this comment later or keep it in
+    # as we can use this for testing in bash shell 
+
+   # get number of CPU cores (fallback to 1 if None)
+    cpu_cores = os.cpu_count() or 1
+
+    # use one worker to prevent the rest of the cpus going crazy and spread em out 
+    workers = max(1, cpu_cores // 4)
+    memory_per_worker = max(1, memory_mb // workers)
     command = [
-        "stress-ng",
-        "--vm", "1",
-        "--vm-bytes", f"{memory_mb}M",
-        "--timeout", f"{duration}s",
-        "--vm-keep"
+    "stress-ng",
+    "--vm", str(workers),
+    "--vm-bytes", f"{memory_per_worker}M", 
+    "--vm-method", "write64",
+    "--timeout", f"{duration}s",
+    "--vm-keep"
     ]
 
     # Start stress test
