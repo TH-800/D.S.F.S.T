@@ -76,6 +76,6 @@ def reset_network():
         "dev",
         NETWORK_INTERFACE,
         "root"
-    ], check=True)
+    ], check=True)# the check true is for if the script ails it throws an error if theres no rules, or network interface or visudo is not setup for sudo 
 
     return {"message": "Network conditions reset"}
