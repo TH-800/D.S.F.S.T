@@ -56,16 +56,20 @@ def inject_memory_stress(memory_mb: int, duration: int):
    # get number of CPU cores (fallback to 1 if None)
     cpu_cores = os.cpu_count() or 1
 
-    # use one worker to prevent the rest of the cpus going crazy and spread em out 
+    # use 1/4 of the  workers to prevent the rest of the cpus going crazy and spread em out 
+    # because this aint a cpu stress its a memory stress test but it does both and this command is silly
     workers = max(1, cpu_cores // 4)
+
+    #gets the amount of memory and divides it among the workers ie cpus to cycle the ram 
+    # so if we got 8 cpu cores and 1000mb of ram to test it would be 2 cpus getting the ram to cycle in 500mb chunks 
     memory_per_worker = max(1, memory_mb // workers)
     command = [
     "stress-ng",
-    "--vm", str(workers),
-    "--vm-bytes", f"{memory_per_worker}M", 
-    "--vm-method", "write64",
+    "--vm", str(workers), # vm starts the worker process/cpu 
+    "--vm-bytes", f"{memory_per_worker}M",  # memory in bytes given to each worker 
+    "--vm-method", "write64", # write 64 is repeated alot in order to simulate ram stress test (DONT USE WRITE. USE WRITE64)
     "--timeout", f"{duration}s",
-    "--vm-keep"
+    "--vm-keep" #keeps the ram in the test instead of freeing it so we dont constantly add and remove the ram 
     ]
 
     # Start stress test
