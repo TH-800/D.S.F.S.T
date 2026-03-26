@@ -1,14 +1,14 @@
 # ExperimentMonitor.py
-# Monitors the state of all D.S.F.S.T injection processes on this machine
-# Runs as a FastAPI service on port 8000
+# Monitors the state of all D.S.F.S.T injection processes on this machine.
+# Runs as a FastAPI service on port 8000.
 #
 # Setup:
 #   pip install fastapi uvicorn psutil
 #   python -m uvicorn ExperimentMonitor:app --host 127.0.0.1 --port 8000 --reload
 #
 # Endpoints:
-#   GET /status        full machine state with active experiment list
-#   GET /health        simple life check to see if the node is working ie VMWARE
+#   GET /status        -> full machine state with active experiment list
+#   GET /health        -> simple alive check
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,8 +26,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Port mapping so we can send each service to which ever port
+# -----------------------------------------------------------------------
+# Port-to-script mapping so we can resolve which service is on which port
+# -----------------------------------------------------------------------
 PORT_MAP = {
     8001: "BaseNetworkInfo.py",
     8002: "LinuxCpuStatus.py",
@@ -38,16 +39,18 @@ PORT_MAP = {
     8007: "MemoryStressInjection.py",
 }
 
-# Ports that belong to injection scripts 
+# Ports that belong to injection scripts (as opposed to passive monitors)
 INJECTION_PORTS = {8004, 8005, 8006, 8007}
 
-# Detection  part that tells us what port is active and what is it doing on there
+# -----------------------------------------------------------------------
+# Detection helpers
+# -----------------------------------------------------------------------
 
 def get_listening_ports() -> dict[int, int]:
-   
-    #Returns a dict of {port: pid} for every process id in the TCP port in PORT_MAP that
-    #currently has a process listening on it
-   
+    """
+    Returns a dict of {port: pid} for every TCP port in PORT_MAP that
+    currently has a process listening on it.
+    """
     listening = {}
     for conn in psutil.net_connections(kind="tcp"):
         if conn.status == "LISTEN" and conn.laddr.port in PORT_MAP:
@@ -56,53 +59,77 @@ def get_listening_ports() -> dict[int, int]:
 
 
 def check_stress_ng_running() -> list[dict]:
-    
-   # Returns a list of running stress-ng processes with their command line
-    #so we can tell what kind of stress is being applied at what time and so we can return it and read it
-    
+    """
+    Returns a list of running stress-ng MASTER processes with their command line
+    so we can tell what kind of stress is being applied.
+
+    stress-ng always spawns one master process (which holds all the flags like
+    --cpu or --vm) plus N worker child processes that have a stripped cmdline
+    with no flags at all. Those workers are what were showing up as "unknown".
+
+    The fix: skip any stress-ng process whose parent process is also stress-ng.
+    That parent-check filters out every worker and leaves only the master(s).
+    """
     results = []
-    for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+    for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time", "ppid"]):
         try:
-            if proc.info["name"] and "stress-ng" in proc.info["name"]:
-                cmdline = proc.info["cmdline"] or []
-                started_at = datetime.utcfromtimestamp(
-                    proc.info["create_time"]
-                ).strftime("%Y-%m-%d %H:%M:%S")
+            if not (proc.info["name"] and "stress-ng" in proc.info["name"]):
+                continue
 
-                stress_type = "unknown"
-                intensity = None
+            # --- worker filter ---
+            # If this process's parent is also a stress-ng process it is a worker
+            # spawned by the master. Skip it so we only report the master once.
+            try:
+                parent = psutil.Process(proc.info["ppid"])
+                parent_name = parent.name()
+                if "stress-ng" in parent_name:
+                    continue  # this is a worker child, not the master — skip it
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                # parent is gone or unreadable — treat this process as the master
+                pass
 
-                if "--cpu" in cmdline:
-                    stress_type = "cpu_stress"
-                    idx = cmdline.index("--cpu")
-                    workers = cmdline[idx + 1] if idx + 1 < len(cmdline) else "?"
-                    intensity = f"{workers} worker(s)"
-                elif "--vm" in cmdline:
-                    stress_type = "memory_stress"
-                    vm_idx = cmdline.index("--vm") if "--vm" in cmdline else -1
-                    bytes_idx = cmdline.index("--vm-bytes") if "--vm-bytes" in cmdline else -1
-                    intensity = cmdline[bytes_idx + 1] if bytes_idx != -1 and bytes_idx + 1 < len(cmdline) else "?"
+            cmdline = proc.info["cmdline"] or []
+            started_at = datetime.utcfromtimestamp(
+                proc.info["create_time"]
+            ).strftime("%Y-%m-%d %H:%M:%S")
 
-                results.append({
-                    "pid": proc.info["pid"],
-                    "type": stress_type,
-                    "intensity": intensity,
-                    "started_at": started_at,
-                })
+            stress_type = "unknown"
+            intensity = None
+
+            if "--cpu" in cmdline:
+                stress_type = "cpu_stress"
+                idx = cmdline.index("--cpu")
+                workers = cmdline[idx + 1] if idx + 1 < len(cmdline) else "?"
+                intensity = f"{workers} worker(s)"
+
+            elif "--vm" in cmdline:
+                stress_type = "memory_stress"
+                bytes_idx = cmdline.index("--vm-bytes") if "--vm-bytes" in cmdline else -1
+                intensity = cmdline[bytes_idx + 1] if bytes_idx != -1 and bytes_idx + 1 < len(cmdline) else "?"
+
+            results.append({
+                "pid": proc.info["pid"],
+                "type": stress_type,
+                "intensity": intensity,
+                "started_at": started_at,
+            })
+
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return results
 
 
 def check_tc_netem_active() -> list[dict]:
-   #Checks every \ network interface for active tc/netem rules.
-    #Returns a list of active network injection rules found because i dont wanna deal with issues in the future
+    """
+    Checks every common network interface for active tc/netem rules.
+    Returns a list of active network injection rules found.
+    """
     common_interfaces = [
         "eth0", "eth1", "ens33", "ens3", "ens4",
         "enp0s3", "enp0s8", "wlan0", "lo",
     ]
 
-    # also scan whatever interfaces psutil can see on the  machine
+    # also scan whatever interfaces psutil can see on this machine
     try:
         live_interfaces = list(psutil.net_if_stats().keys())
         for iface in live_interfaces:
@@ -122,7 +149,7 @@ def check_tc_netem_active() -> list[dict]:
             )
             output = result.stdout.strip()
 
-            # a bare "noqueue" or "pfifo_fast" means nothing is injected i think?
+            # a bare "noqueue" or "pfifo_fast" means nothing is injected
             if "netem" in output:
                 rule = {
                     "interface": iface,
@@ -133,7 +160,7 @@ def check_tc_netem_active() -> list[dict]:
 
                 if "delay" in output:
                     rule["type"] = "network_latency"
-                    # extract the delay value e.g. "delay 200ms or whatever"
+                    # extract the delay value e.g. "delay 200ms"
                     parts = output.split()
                     try:
                         idx = parts.index("delay")
@@ -152,7 +179,7 @@ def check_tc_netem_active() -> list[dict]:
 
                 active_rules.append(rule)
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            # tc is not installed or timed out skip it then so the script wont have issues 
+            # tc is not installed or timed out — skip silently
             pass
         except Exception:
             pass
@@ -161,9 +188,9 @@ def check_tc_netem_active() -> list[dict]:
 
 
 def build_active_experiments(stress_procs: list, tc_rules: list, listening_ports: dict) -> list[dict]:
-    
-    #Combines all detection sources into a unified list of active experiments so we can read it easily on the frontend
-    
+    """
+    Combines all detection sources into a unified list of active experiments.
+    """
     experiments = []
 
     for proc in stress_procs:
@@ -190,32 +217,33 @@ def build_active_experiments(stress_procs: list, tc_rules: list, listening_ports
     return experiments
 
 
-#for in case we just wanna runthe script without using fastAPI
-#I DONT KNOW WHY WE WOULD RUN IT WITHOUT FASTAPI BUT WE GOTTA ACCOUNT FOR EVERYTHING
 def check_uvicorn_shutting_down(pid: int) -> bool:
-    
-    #Heuristic: a uvicorn process that exists but has no child workers
-    #is likely in the process of shutting down.
-    
+    """
+    Heuristic: a uvicorn process that exists but has no child workers
+    is likely in the process of shutting down.
+    """
     try:
         proc = psutil.Process(pid)
         children = proc.children(recursive=False)
-        # if the process is still alive but has no children it may be winding down or i dont know 
+        # if the process is still alive but has no children it may be winding down
         return len(children) == 0 and proc.status() == psutil.STATUS_ZOMBIE
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return False
 
 
-# State of the machine and logic for printing out whats out there
+# -----------------------------------------------------------------------
+# State machine logic
+# -----------------------------------------------------------------------
 
 def determine_state(active_experiments: list, listening_ports: dict) -> str:
-    #Maps the observed system state to one of:
-    #  idle      - no injections running, injection services may or may not be up
-    #  running   - at least one active injection (stress-ng or tc/netem)
-    #  stopping  - injection services detected shutting down
-     # complete  - injection services were up but no active injections found
-     #             (means an experiment ran and finished or was reset)
-
+    """
+    Maps the observed system state to one of:
+      idle      - no injections running, injection services may or may not be up
+      running   - at least one active injection (stress-ng or tc/netem)
+      stopping  - injection services detected shutting down
+      complete  - injection services were up but no active injections found
+                  (means an experiment ran and finished or was reset)
+    """
     injection_services_up = any(p in listening_ports for p in INJECTION_PORTS)
     has_active_injections = len(active_experiments) > 0
 
@@ -231,12 +259,14 @@ def determine_state(active_experiments: list, listening_ports: dict) -> str:
     if has_active_injections:
         return "running"
     if injection_services_up:
-        # services are alive but nothing is injecting that means the last run is done
+        # services are alive but nothing is injecting — last run completed
         return "complete"
     return "idle"
 
 
+# -----------------------------------------------------------------------
 # API endpoints
+# -----------------------------------------------------------------------
 
 @app.get("/health")
 def health():
@@ -337,7 +367,9 @@ def get_status():
 
 @app.get("/services")
 def get_services():
-    # check which D.S.F.S.T services are currently listening.
+    """
+    Quick check of which D.S.F.S.T services are currently listening.
+    """
     listening_ports = get_listening_ports()
     return {
         str(port): {
