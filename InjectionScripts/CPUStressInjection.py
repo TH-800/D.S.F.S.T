@@ -24,7 +24,7 @@ app.add_middleware(
 
 CONTAINER_ID = "LinuxMachineHere"
 
-# 🔥 track cpu stress process so we dont kill all stress-ng processes
+# track cpu stress process so we dont kill all stress-ng processes and make a variable to store it in
 cpu_process = None
 
 @app.get("/")
@@ -38,6 +38,8 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     global cpu_process
 
+    #checking for errors and seeing if anything is already running 
+    # and if not then run the commands and try statement 
     # Prevent overloading host machine
     if cpu_percent < 1 or cpu_percent > 65:
         return {"error": "CPU load must be between 1% and 65% to prevent host failure"}
@@ -51,7 +53,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     cpu_cores = os.cpu_count() or 1 #small fix so incase somehow there are like 0 cpu cores it defaults 1 without breaking anything i hope
     
-    # gets the number of cpu cores and divides them into a percentage 
+    # gets the number of cpu cores and divides them into a percentage and then finds the number of cpus to test out
     workers = max(1, round(cpu_cores * (cpu_percent / 100)))
 
     # commands stored in a list string variable so they can be executed in the
@@ -60,9 +62,9 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
     command = [
         "stress-ng", # stress test a system component which also needs the apt install
         "--cpu",
-        str(workers),
+        str(workers), # str to convert from a number to a string so it can be used in the shell
         "--timeout", # how long the cpu is going to be stressed for 
-        f"{duration}s"
+        f"{duration}s" # duration time 
     ]
 
     # Start stress test
@@ -93,7 +95,7 @@ def reset_cpu_stress():
     global cpu_process
 
     if cpu_process and cpu_process.poll() is None:
-        cpu_process.terminate()
+        cpu_process.terminate() #kills the subprocess running 
         cpu_process.wait(timeout=5)
         cpu_process = None
         return {"message": "CPU stress stopped"}
