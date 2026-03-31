@@ -26,9 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------------------------------------------------
-# Port-to-script mapping so we can resolve which service is on which port
-# -----------------------------------------------------------------------
+# Port-to-script mapping so we can resolve which service is on which port and not have any issues when reading info from em
 PORT_MAP = {
     8001: "BaseNetworkInfo.py",
     8002: "LinuxCpuStatus.py",
@@ -37,15 +35,16 @@ PORT_MAP = {
     8005: "NetworkLatencyInjection.py",
     8006: "PacketLossInjection.py",
     8007: "MemoryStressInjection.py",
+    8008: "metrics_api.py",
+    8009: "experiment_orchestrator.py",
+    8010: "reports_aggregator.py",
 }
 
 # Ports that belong to injection scripts (as opposed to passive monitors)
 INJECTION_PORTS = {8004, 8005, 8006, 8007}
 
-# -----------------------------------------------------------------------
-# Detection helpers
-# -----------------------------------------------------------------------
-
+ # Detection helpers
+ 
 def get_listening_ports() -> dict[int, int]:
     """
     Returns a dict of {port: pid} for every TCP port in PORT_MAP that
@@ -76,7 +75,7 @@ def check_stress_ng_running() -> list[dict]:
             if not (proc.info["name"] and "stress-ng" in proc.info["name"]):
                 continue
 
-            # --- worker filter ---
+            #  worker filter 
             # If this process's parent is also a stress-ng process it is a worker
             # spawned by the master. Skip it so we only report the master once.
             try:
@@ -179,7 +178,7 @@ def check_tc_netem_active() -> list[dict]:
 
                 active_rules.append(rule)
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            # tc is not installed or timed out — skip silently
+            # tc is not installed or timed out skip it silently because why not
             pass
         except Exception:
             pass
@@ -231,10 +230,8 @@ def check_uvicorn_shutting_down(pid: int) -> bool:
         return False
 
 
-# -----------------------------------------------------------------------
-# State machine logic
-# -----------------------------------------------------------------------
-
+ # State machine logic
+ 
 def determine_state(active_experiments: list, listening_ports: dict) -> str:
     """
     Maps the observed system state to one of:
@@ -264,10 +261,8 @@ def determine_state(active_experiments: list, listening_ports: dict) -> str:
     return "idle"
 
 
-# -----------------------------------------------------------------------
-# API endpoints
-# -----------------------------------------------------------------------
-
+ # API endpoints
+ 
 @app.get("/health")
 def health():
     return {
@@ -309,7 +304,7 @@ def get_status():
     active_exps     = build_active_experiments(stress_procs, tc_rules, listening_ports)
     state           = determine_state(active_exps, listening_ports)
 
-    # build per-service status map
+    # build perservice status map
     services = {}
     for port, script in PORT_MAP.items():
         online = port in listening_ports
@@ -341,7 +336,7 @@ def get_status():
         response["active_experiments"] = active_exps
 
     elif state == "stopping":
-        # report which injection services appear to be winding down
+        # report which injection services appear to be winding down and which are done 
         stopping = [
             {
                 "script": PORT_MAP[port],
