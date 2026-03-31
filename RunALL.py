@@ -45,6 +45,9 @@ STARTUP_DELAY = 1.5
 
 # -----------------------------------------------------------------------
 
+
+#service table to be used in a loop to launch all the scripts 
+#dont change any of the ports and dont change anything here or else it breaks 
 SERVICES = [
     #  monitor (starts first so it's ready when everything else comes up) 
     {
@@ -97,6 +100,28 @@ SERVICES = [
         "port": 8007,
         "cwd": INJECTION_DIR,
     },
+    # persistence + orchestration layer i hate IPV6 AND LINUX VMWARE BREAKING THE IP ROUTING TABLES
+    # SUDO NANO AND FOLLOW THE TXT FILE FOR THE IP TABLE FIXING 
+    
+    {
+        "name": "MetricsAPI",
+        "module": "metrics_api:app",
+        "port": 8008,
+        "cwd": BASE_DIR,
+    },
+    {
+        "name": "ExperimentOrchestrator",
+        "module": "experiment_orchestrator:app",
+        "port": 8009,
+        "cwd": BASE_DIR,
+    },
+    {
+        "name": "ReportsAggregator",
+        "module": "reports_aggregator:app",
+        "port": 8010,
+        "cwd": BASE_DIR,
+    },
+
 ]
 
 # Colour helpers for terminal output becuase my eyes hurt looking at things  note this was vibe coded
@@ -244,7 +269,7 @@ def start_frontend() -> subprocess.Popen | None:
         )
         t.start()
 
-        # Vite can take a few seconds to compile
+        # Vite can take a few seconds to compile #vite is also the frontend display i think 
         if wait_for_port(3000, timeout=30.0):
             ok(f"{BOLD}Frontend{RESET}{GREEN} — http://localhost:3000/#/{RESET}")
             return proc
@@ -267,7 +292,7 @@ def shutdown_all():
     print()
     print(f"{YELLOW}Shutting down all services…{RESET}")
     for name, proc in running_processes:
-        if proc.poll() is None:  # still alive
+        if proc.poll() is None:  # still alive then
             info(f"Stopping {name}…")
             proc.terminate()
 
@@ -289,7 +314,7 @@ def handle_signal(signum, frame):
     sys.exit(0)
 
 
-# Main i used vibe coding here to make it easy for me to debug it inthe terminal 
+# Mainly i used vibe coding here to make it easy for me to debug it inthe terminal 
 # by having color coding for the services 
 
 
@@ -313,10 +338,14 @@ def print_summary():
     print(f"  {GREEN}NetworkLatencyInj.{RESET}     http://127.0.0.1:8005/inject/latency/{{ms}}")
     print(f"  {GREEN}PacketLossInjection{RESET}    http://127.0.0.1:8006/inject/packetloss/{{%}}")
     print(f"  {GREEN}MemoryStressInj.{RESET}       http://127.0.0.1:8007/inject/memory")
+    print(f"  {GREEN}MetricsAPI{RESET}             http://127.0.0.1:8008/experiments")
+    print(f"  {GREEN}ExperimentOrchest.{RESET}     http://127.0.0.1:8009/state")
+    print(f"  {GREEN}ReportsAggregator{RESET}      http://127.0.0.1:8010/reports/aggregate")
     print()
+    print(f"  {DIM}Run  python metrics_writer.py  in a separate terminal to persist metrics.{RESET}")
     print(f"  {DIM}Press Ctrl+C to stop all services.{RESET}")
     print()
-
+#end of vibe code snippet
 
 def main():
     print_banner()
