@@ -1,0 +1,522 @@
+D.S.F.S.T — Complete Setup Guide
+Distributed Systems Failure Simulation Tool
+============================================================
+This guide covers everything needed to set up MongoDB, InfluxDB,
+Redis, and all Python scripts on a fresh Ubuntu 22.04 machine.
+============================================================
+
+
+REQUIREMENTS
+------------
+- Ubuntu 22.04 (physical install or VMware/VirtualBox VM)
+- Minimum 16GB RAM recommended (8GB will work but may be slow unless your fine with it being slow as hell)
+- Internet connection for downloading packages
+- The D.S.F.S.T-dev project folder
+
+
+============================================================
+PART 1 — INSTALL DOCKER
+============================================================
+
+Docker runs MongoDB, InfluxDB, and Redis as containers so you
+don't need to install them directly on your machine.
+
+Step 1.1 — Remove any old Docker versions (safe to run even if none installed):
+
+    sudo apt remove -y docker docker-engine docker.io containerd runc
+
+Note: If you see "Waiting for cache lock" messages, just wait —
+Ubuntu's automatic updater is running in the background. It will
+finish on its own after a few minutes.
+
+Step 1.2 — Install dependencies:
+
+    sudo apt update
+    sudo apt install -y ca-certificates curl gnupg lsb-release
+
+Step 1.3 — Add Docker's official package repository:
+
+    sudo install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+      https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+Step 1.4 — Install Docker:
+
+    sudo apt update
+    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+Step 1.5 — Allow your user to run Docker without sudo:
+
+    sudo usermod -aG docker $USER
+    newgrp docker
+
+Step 1.6 — Verify Docker works:
+
+    docker run hello-world
+
+    You should see "Hello from Docker!" in the output.
+
+
+============================================================
+PART 2 — FIX DOCKER IPTABLES (VMWARE/VIRTUALBOX ONLY)
+============================================================
+
+If you are running Ubuntu inside VMware or VirtualBox, Docker's
+network forwarding rules break every time the VM restarts.
+This fix makes Docker automatically repair itself on every boot.
+
+Step 2.1 — Create the fix service:
+
+    sudo nano /etc/systemd/system/docker-iptables-fix.service
+
+Paste the following exactly:
+
+    [Unit]
+    Description=Fix Docker iptables after VMware boot
+    After=network.target docker.service
+    Requires=docker.service
+
+    [Service]
+    Type=oneshot
+    ExecStart=/bin/systemctl restart docker
+    RemainAfterExit=yes
+
+    [Install]
+    WantedBy=multi-user.target
+
+Save with Ctrl+O, Enter, Ctrl+X.
+
+Step 2.2 — Enable the fix so it runs automatically:
+
+    sudo systemctl enable docker-iptables-fix.service
+
+You only need to do this once. From now on, every time the VM
+boots, Docker's networking is automatically repaired.
+
+If you ever start the VM and MongoDB connections fail, run this
+manually to fix it:
+
+    sudo systemctl restart docker
+
+
+============================================================
+PART 3 — START THE DATABASE CONTAINERS
+============================================================
+
+Step 3.1 — Navigate to the project folder:
+
+    cd ~/Downloads/D.S.F.S.T-dev
+    (or wherever you placed the project)
+
+Step 3.2 — Start MongoDB, InfluxDB, and Redis:
+
+    sudo docker compose up -d
+
+Step 3.3 — Verify all three containers are running:
+
+    sudo docker compose ps
+
+    You should see three containers all showing "Up":
+    - dsfst-mongodb   (port 27017)
+    - dsfst-influxdb  (port 8086)
+    - dsfst-redis     (port 6379)
+
+If any container shows "Exit" instead of "Up", run:
+
+    sudo docker compose logs <container-name>
+
+to see what went wrong.
+
+
+============================================================
+PART 4 — INFLUXDB FIRST-TIME SETUP (WEB UI)
+============================================================
+
+InfluxDB requires a one-time setup through its web interface
+to generate an authentication token. This cannot be skipped.
+
+Step 4.1 — Open a browser and go to:
+
+    http://localhost:8086
+
+Step 4.2 — Fill in the setup form with EXACTLY these values:
+
+    Username:      admin  (or anything you'll remember)
+    Password:      anything you'll remember
+    Organization:  dsfst-org
+    Bucket:        dsfst-bucket
+
+    IMPORTANT: The organization and bucket names must be exactly
+    as written above. The scripts are configured for these names.
+
+Step 4.3 — Click "Continue" or "Get Started".
+
+Step 4.4 — On the next screen, copy the API token shown.
+
+    The token looks like a long string of letters and numbers, e.g.:
+    abc123xyz...==
+
+    IMPORTANT: Copy this token immediately. InfluxDB only shows
+    it once. If you miss it, go to:
+    Load Data → API Tokens → Generate API Token → All Access Token
+
+Step 4.5 — Keep this token safe — you will need it in Part 5.
+
+
+============================================================
+PART 5 — CREATE THE .env FILE
+============================================================
+
+The .env file stores all connection details for the databases.
+All Python scripts read from this file automatically.
+
+Step 5.1 — Create the .env file in the project root:
+
+    nano ~/Downloads/D.S.F.S.T-dev/.env
+
+Step 5.2 — Paste the following, replacing YOUR_TOKEN_HERE with
+the InfluxDB token you copied in Step 4.4:
+
+    MONGO_URI=mongodb://127.0.0.1:27017/
+    MONGO_DB_NAME=dsfst
+
+    INFLUXDB_URL=http://127.0.0.1:8086
+    INFLUXDB_TOKEN=YOUR_TOKEN_HERE
+    INFLUXDB_ORG=dsfst-org
+    INFLUXDB_BUCKET=dsfst-bucket
+
+    REDIS_HOST=127.0.0.1
+    REDIS_PORT=6379
+    REDIS_DB=0
+
+Save with Ctrl+O, Enter, Ctrl+X.
+
+Step 5.3 — Copy the same .env file into the database folder:
+
+    cp ~/Downloads/D.S.F.S.T-dev/.env ~/Downloads/D.S.F.S.T-dev/database/.env
+
+Step 5.4 — Protect the .env file so it doesn't get committed to Git:
+
+    cat ~/Downloads/D.S.F.S.T-dev/.gitignore
+
+If ".env" is not listed in the output, add it:
+
+    echo ".env" >> ~/Downloads/D.S.F.S.T-dev/.gitignore
+
+IMPORTANT: Never share your .env file or commit it to GitHub.
+It contains your InfluxDB token which grants full database access.
+
+
+============================================================
+PART 6 — INSTALL PYTHON DEPENDENCIES
+============================================================
+
+Step 6.1 — Install all required Python packages:
+
+    pip install fastapi uvicorn pymongo==3.12.3 influxdb-client python-dotenv requests psutil redis
+
+    NOTE: pymongo must be version 3.12.3 specifically. Newer
+    versions have a known compatibility issue with Python 3.10
+    and Ubuntu 22.04 that prevents connecting to MongoDB.
+
+Step 6.2 — Install stress-ng (needed for CPU and memory injection):
+
+    sudo apt install -y stress-ng
+
+Step 6.3 — Verify the critical packages installed correctly:
+
+    python3 -c "import pymongo; print('pymongo:', pymongo.version)"
+    python3 -c "import influxdb_client; print('influxdb-client: ok')"
+    python3 -c "import redis; print('redis: ok')"
+
+    Each line should print without errors.
+
+
+============================================================
+PART 7 — INITIALISE THE DATABASES
+============================================================
+
+This creates the collections in MongoDB and confirms the
+InfluxDB bucket exists. Only needs to be done once.
+
+Step 7.1 — Run the MongoDB setup:
+
+    cd ~/Downloads/D.S.F.S.T-dev/database
+    python3 mongo_setup.py
+
+    Expected output:
+        Created collection: experiments
+        Created collection: logs
+        Created collection: users
+        MongoDB setup completed successfully for database: dsfst
+
+Step 7.2 — Run the InfluxDB setup:
+
+    python3 influx_setup.py
+
+    Expected output:
+        Bucket already exists: dsfst-bucket   (or "Created bucket")
+        InfluxDB setup completed successfully.
+
+    If you see "InfluxDB token not found", your .env file is
+    missing or the token line has a typo. Check it with:
+        cat ~/Downloads/D.S.F.S.T-dev/database/.env
+
+Step 7.3 — Verify everything connected:
+
+    docker exec -it dsfst-mongodb mongosh dsfst --eval "db.getCollectionNames()"
+    Expected: [ 'experiments', 'logs', 'users' ]
+
+    docker exec -it dsfst-redis redis-cli ping
+    Expected: PONG
+
+
+============================================================
+PART 8 — TEST MONGODB CONNECTION FROM PYTHON
+============================================================
+
+Before starting the scripts, confirm pymongo can connect:
+
+    python3 -c "
+    from pymongo import MongoClient
+    c = MongoClient('mongodb://127.0.0.1:27017/', serverSelectionTimeoutMS=10000)
+    print(c.admin.command('ping'))
+    print('MongoDB: connected successfully')
+    "
+
+Expected output: {'ok': 1.0} followed by "MongoDB: connected successfully"
+
+If this fails with a timeout error:
+- Run: sudo systemctl restart docker
+- Wait 15 seconds
+- Run: sudo docker compose up -d
+- Wait 10 seconds
+- Try the test again
+
+
+============================================================
+PART 9 — RUNNING THE PROJECT
+============================================================
+
+You need THREE terminal windows open at the same time.
+
+--- TERMINAL 1 — Start all FastAPI services and the frontend ---
+
+    cd ~/Downloads/D.S.F.S.T-dev
+    python3 RunALL.py
+
+    Wait until you see all services listed as listening and
+    "Frontend — http://localhost:3000/#/" appears.
+    Leave this terminal running.
+
+--- TERMINAL 2 — Start the metrics writer ---
+
+    cd ~/Downloads/D.S.F.S.T-dev
+    python3 metrics_writer.py
+
+    You should see:
+        [MongoDB] Connected to mongodb://127.0.0.1:27017/ / dsfst
+        [InfluxDB] Connected to http://127.0.0.1:8086
+
+    Leave this terminal running. It polls all monitoring scripts
+    every 5 seconds and writes data to both databases.
+
+--- TERMINAL 3 — Use for commands and verification ---
+
+    # Verify all services are healthy
+    curl http://localhost:8000/health   # ExperimentMonitor
+    curl http://localhost:8008/health   # MetricsAPI
+    curl http://localhost:8009/health   # ExperimentOrchestrator
+    curl http://localhost:8010/health   # ReportsAggregator
+
+    All should show "status":"ok" and "mongo":"connected"
+
+--- OPEN THE DASHBOARD ---
+
+    Open a browser and go to: http://localhost:3000
+
+
+============================================================
+PART 10 — VIEWING DATA IN THE DATABASES
+============================================================
+
+--- MongoDB (via terminal) ---
+
+List all recorded experiments:
+
+    docker exec -it dsfst-mongodb mongosh dsfst --eval \
+    "db.experiments.find({},{experiment_id:1,name:1,status:1,failure_type:1}).pretty()"
+
+List recent log entries:
+
+    docker exec -it dsfst-mongodb mongosh dsfst --eval \
+    "db.logs.find({},{event_type:1,message:1,timestamp:1}).sort({timestamp:-1}).limit(10).pretty()"
+
+Count documents in each collection:
+
+    docker exec -it dsfst-mongodb mongosh dsfst --eval \
+    "print('experiments:', db.experiments.countDocuments(), 'logs:', db.logs.countDocuments())"
+
+--- MongoDB (via API) ---
+
+    curl http://localhost:8008/experiments          # all experiments
+    curl http://localhost:8008/logs/recent          # recent log entries
+    curl http://localhost:8010/reports/aggregate    # overall stats
+    curl http://localhost:8010/reports/failure-counts  # counts by type
+    curl http://localhost:8010/reports/timeline     # completed experiments
+
+--- InfluxDB (web UI) ---
+
+    1. Open http://localhost:8086 in a browser
+    2. Log in with your admin credentials
+    3. Click "Data Explorer" in the left sidebar
+    4. Select "dsfst-bucket" from the bucket dropdown
+    5. Select a measurement: cpu, memory, or network
+    6. Click "Submit" to see the time-series graph
+
+
+============================================================
+PART 11 — STARTUP ORDER (EVERY TIME YOU USE THE PROJECT)
+============================================================
+
+Follow this order every session:
+
+1. Start Docker containers:
+       sudo docker compose up -d
+
+2. Wait 10 seconds for MongoDB to fully initialise, then
+   test the connection:
+       python3 -c "from pymongo import MongoClient; MongoClient('mongodb://127.0.0.1:27017/').admin.command('ping'); print('ok')"
+
+   If this fails, restart Docker and try again:
+       sudo systemctl restart docker
+       sudo docker compose up -d
+       sleep 15
+
+3. Start all services (Terminal 1):
+       python3 RunALL.py
+
+4. Start metrics writer (Terminal 2):
+       python3 metrics_writer.py
+
+5. Open dashboard in browser:
+       http://localhost:3000
+
+
+============================================================
+PART 12 — SHUTDOWN ORDER
+============================================================
+
+1. Press Ctrl+C in the metrics_writer terminal
+2. Press Ctrl+C in the RunALL terminal
+3. Stop Docker containers:
+       sudo docker compose down
+
+   To stop containers but keep all your data:
+       sudo docker compose down
+
+   To stop containers AND wipe all data (full reset):
+       sudo docker compose down -v
+
+
+============================================================
+PART 13 — TROUBLESHOOTING
+============================================================
+
+PROBLEM: "Waiting for cache lock" when running apt commands
+FIX: Wait 5-10 minutes for Ubuntu's automatic updater to finish,
+     then try again.
+
+PROBLEM: docker compose says "permission denied"
+FIX: Use sudo:  sudo docker compose up -d
+     Or fix permanently: sudo usermod -aG docker $USER
+     Then log out and log back into Ubuntu.
+
+PROBLEM: MongoDB shows "unreachable" in health checks
+FIX: sudo systemctl restart docker
+     sudo docker compose up -d
+     Wait 15 seconds and try again.
+
+PROBLEM: metrics_writer shows "Cannot connect to MongoDB"
+FIX: Same as above — restart Docker before starting the scripts.
+
+PROBLEM: pymongo ServerSelectionTimeoutError
+FIX: Make sure pymongo is exactly version 3.12.3:
+     pip install "pymongo==3.12.3" --force-reinstall
+     Then restart Docker as above.
+
+PROBLEM: InfluxDB token not found
+FIX: Check your .env file exists in both locations:
+     cat ~/Downloads/D.S.F.S.T-dev/.env
+     cat ~/Downloads/D.S.F.S.T-dev/database/.env
+     Make sure INFLUXDB_TOKEN= has a value after the equals sign.
+
+PROBLEM: MetricsAPI fails to start (port 8008)
+FIX: Make sure the file is named exactly metrics_api.py
+     (all lowercase, no capital M).
+
+PROBLEM: Network timeout errors in metrics_writer output
+NOTE: This is normal. BaseNetworkInfo.py pings 8.8.8.8 five
+      times per call which can take several seconds. It does
+      not affect experiment logging or other metrics.
+
+PROBLEM: Port already in use when starting RunALL
+FIX: A previous session didn't shut down cleanly. Kill everything:
+     pkill -f uvicorn
+     pkill -f "npm run dev"
+     Then start RunALL again.
+
+
+============================================================
+FILE LOCATIONS REFERENCE
+============================================================
+
+Project root:  ~/Downloads/D.S.F.S.T-dev/
+
+New files added (place in project root):
+    metrics_writer.py         — polls monitoring scripts, writes to databases
+    experiment_logger.py      — helper module for logging to MongoDB
+    metrics_api.py            — FastAPI on port 8008, reads from databases
+    experiment_orchestrator.py — FastAPI on port 8009, state machine + POST endpoints
+    reports_aggregator.py     — FastAPI on port 8010, aggregation queries
+
+Updated files (replace originals):
+    RunALL.py                 — now starts ports 8008, 8009, 8010 as well
+    ExperimentMonitor.py      — PORT_MAP updated with new services
+
+Database setup scripts (in database/ subfolder):
+    database/mongo_setup.py   — creates MongoDB collections and indexes
+    database/influx_setup.py  — creates InfluxDB bucket
+    database/sample_data.py   — inserts test data (optional)
+    database/requirements.txt — Python package list
+
+Config file (create this yourself):
+    .env                      — database connection strings and tokens
+    database/.env             — copy of the same file
+
+
+============================================================
+PORT REFERENCE
+============================================================
+
+3000   Frontend dashboard (React)
+8000   ExperimentMonitor — GET /status, GET /health
+8001   BaseNetworkInfo — GET /network
+8002   LinuxCpuStatus — GET /cpu
+8003   LinuxMemoryStatus — GET /memory
+8004   CPUStressInjection — POST /inject/cpu, POST /reset/cpu
+8005   NetworkLatencyInjection — POST /inject/latency/{ms}
+8006   PacketLossInjection — POST /inject/packetloss/{percent}
+8007   MemoryStressInjection — POST /inject/memory
+8008   MetricsAPI — GET /experiments, GET /logs/recent, GET /reports/summary
+8009   ExperimentOrchestrator — POST /experiments, POST /emergency-stop
+8010   ReportsAggregator — GET /reports/aggregate, GET /reports/by-type
+27017  MongoDB (Docker container)
+6379   Redis (Docker container)
+8086   InfluxDB (Docker container)
