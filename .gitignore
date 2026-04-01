@@ -1,4 +1,21 @@
+# Python
 venv/
 __pycache__/
 *.pyc
+*.pyo
+
+# Environment files
 .env
+database/.env
+
+# Node
+node_modules/
+dsft-frontend/node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Accidental local files
+FETCH_HEAD

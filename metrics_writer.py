@@ -281,7 +281,7 @@ def run():
     write_api  = influx.write_api(write_options=SYNCHRONOUS) if influx else None
     tracker    = StateTracker()
 
-    if not db:
+    if db is None:
         print("[ERROR] Cannot connect to MongoDB. Is docker-compose up and running?")
         sys.exit(1)
 
