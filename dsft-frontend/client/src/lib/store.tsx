@@ -32,6 +32,7 @@ export interface Report {
   type: "cpu" | "latency" | "packet_loss" | "memory";
   duration: string;
   completedAt: string;
+
   metrics: {
     before: Record<string, number>;
     during: Record<string, number>;

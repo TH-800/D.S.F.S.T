@@ -21,11 +21,14 @@ import {
   fetchNetworkData,
   fetchHealthData,
   fetchStatusData,
+  fetchLatestMetrics,
+  fetchOrchestratorState,
   type CpuData,
   type MemoryData,
   type NetworkData,
   type HealthData,
   type StatusData,
+  type OrchestratorState,
 } from "@/lib/api";
 
 // figures out what color to show based on a percentage value
@@ -92,25 +95,105 @@ export default function Dashboard() {
   const [statusData, setStatusData] = useState<StatusData | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  // orchestrator state from port 8009 - shows us the experiment lifecycle state machine
+  const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
 
   // fetches all the metrics - either from mock or the real API
+  // in live mode we also try the MetricsAPI (port 8008) as a fallback for the direct
+  // monitoring endpoints, and we grab the orchestrator state from port 8009
   const refreshData = useCallback(async () => {
     try {
       setError(null);
       if (isLiveMode) {
-        // try to hit the actual FastAPI endpoints
-        const [cpu, mem, net, health, status] = await Promise.all([
+        // try to hit the actual FastAPI endpoints first (direct monitoring scripts)
+        // and also grab the orchestrator state in parallel
+        const results = await Promise.allSettled([
           fetchCpuData(),
           fetchMemoryData(),
           fetchNetworkData(),
           fetchHealthData(),
           fetchStatusData(),
+          fetchOrchestratorState(),
         ]);
-        setCpuData(cpu);
-        setMemData(mem);
-        setNetData(net);
-        setHealthData(health);
-        setStatusData(status);
+
+        const [cpuResult, memResult, netResult, healthResult, statusResult, orchResult] = results;
+
+        // if the direct monitoring endpoints (ports 8001-8003) failed, try MetricsAPI as backup
+        // the MetricsAPI reads the same data from InfluxDB so it should be close enough
+        let usedFallback = false;
+        if (cpuResult.status === "rejected" || memResult.status === "rejected" || netResult.status === "rejected") {
+          usedFallback = true;
+          try {
+            const metrics = await fetchLatestMetrics();
+            // only fill in what the direct endpoints couldnt give us
+            if (cpuResult.status === "rejected" && metrics.cpu) {
+              setCpuData({
+                container_id: "dsft-node-01",
+                cpu_usage_percent: metrics.cpu.cpu_usage_percent,
+                timestamp: metrics.cpu.timestamp,
+              });
+            } else if (cpuResult.status === "fulfilled") {
+              setCpuData(cpuResult.value);
+            }
+
+            if (memResult.status === "rejected" && metrics.memory) {
+              setMemData({
+                container_id: "dsft-node-01",
+                memory_used_mb: metrics.memory.memory_used_mb,
+                memory_percent: metrics.memory.memory_percent,
+                timestamp: metrics.memory.timestamp,
+              });
+            } else if (memResult.status === "fulfilled") {
+              setMemData(memResult.value);
+            }
+
+            if (netResult.status === "rejected" && metrics.network) {
+              setNetData({
+                host: "10.0.0.1",
+                pings: [],
+                average_latency_ms: metrics.network.latency_ms,
+                latency_quality: metrics.network.latency_ms > 100 ? "Poor" : metrics.network.latency_ms > 50 ? "Moderate" : "Good",
+                jitter_ms: 0,
+                jitter_quality: "N/A",
+                container_id: "dsft-node-01",
+                latency_ms: metrics.network.latency_ms,
+                packet_loss_percent: metrics.network.packet_loss_percent,
+                throughput_kbps: metrics.network.throughput_kbps,
+                timestamp: metrics.network.timestamp,
+              });
+            } else if (netResult.status === "fulfilled") {
+              setNetData(netResult.value);
+            }
+          } catch {
+            // MetricsAPI also failed - fall back to mock for the failed ones
+            if (cpuResult.status === "rejected") setCpuData(getMockCpuData());
+            else setCpuData(cpuResult.value);
+            if (memResult.status === "rejected") setMemData(getMockMemoryData());
+            else setMemData(memResult.value);
+            if (netResult.status === "rejected") setNetData(getMockNetworkData());
+            else setNetData(netResult.value);
+          }
+        } else {
+          // all direct endpoints worked fine
+          setCpuData(cpuResult.value);
+          setMemData(memResult.value);
+          setNetData(netResult.value);
+        }
+
+        // health and status from the monitor (port 8000)
+        setHealthData(healthResult.status === "fulfilled" ? healthResult.value : getMockHealthData());
+        setStatusData(statusResult.status === "fulfilled" ? statusResult.value : getMockStatusData());
+
+        // orchestrator state (port 8009) - its ok if this fails, just means orchestrator isnt up
+        setOrchestratorState(orchResult.status === "fulfilled" ? orchResult.value : null);
+
+        if (usedFallback) {
+          addLog({
+            timestamp: new Date().toISOString(),
+            eventType: "metric_collected",
+            message: "Some direct endpoints were down, used MetricsAPI as fallback",
+          });
+        }
       } else {
         // just generate some fake numbers
         setCpuData(getMockCpuData());
@@ -118,6 +201,7 @@ export default function Dashboard() {
         setNetData(getMockNetworkData());
         setHealthData(getMockHealthData());
         setStatusData(getMockStatusData());
+        setOrchestratorState(null);
       }
       setLastUpdate(new Date().toISOString());
 
@@ -136,6 +220,7 @@ export default function Dashboard() {
       setNetData(getMockNetworkData());
       setHealthData(getMockHealthData());
       setStatusData(getMockStatusData());
+      setOrchestratorState(null);
       setLastUpdate(new Date().toISOString());
 
       addLog({
@@ -402,6 +487,46 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* orchestrator state from port 8009 - shows the experiment lifecycle state machine */}
+      {orchestratorState && (
+        <Card data-testid="card-orchestrator-state">
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Orchestrator</CardTitle>
+            <div className="p-2 rounded-md bg-muted">
+              <Activity className="h-4 w-4" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold capitalize">{orchestratorState.state}</span>
+                <Badge
+                  className={
+                    orchestratorState.state === "idle"
+                      ? "bg-gray-500/10 text-gray-500 border-gray-500/20"
+                      : orchestratorState.state === "running"
+                        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                        : orchestratorState.state === "stopping"
+                          ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                          : "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                  }
+                >
+                  {orchestratorState.state}
+                </Badge>
+              </div>
+              {orchestratorState.active_experiment_id && (
+                <p className="text-xs text-muted-foreground">
+                  Active experiment: {orchestratorState.active_experiment_id}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Updated: {formatTime(orchestratorState.timestamp)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* show active experiments from the monitor if there are any */}

@@ -2,7 +2,7 @@
 // you pick what kind of failure to inject, set the params, and hit start
 // it also shows a list of all the experiments youve run so far
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Play, Square, Cpu, Wifi, AlertTriangle, MemoryStick } from "lucide-react";
+import { Play, Square, Cpu, Wifi, AlertTriangle, MemoryStick, OctagonX } from "lucide-react";
 import { useAppState, type Experiment } from "@/lib/store";
 import {
   injectCpuStress,
@@ -25,6 +25,14 @@ import {
   resetCpu,
   resetNetwork,
   resetMemory,
+  fetchDbExperiments,
+  fetchOrchestratorState,
+  createExperiment,
+  startExperiment,
+  stopExperiment,
+  emergencyStop,
+  type OrchestratorState,
+  type DbExperiment,
 } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -64,9 +72,39 @@ export default function Experiments() {
   const [memoryDuration, setMemoryDuration] = useState(30);
   const [isStarting, setIsStarting] = useState(false);
 
+  // orchestrator state from port 8009 and experiments from the database
+  const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
+  const [dbExperiments, setDbExperiments] = useState<DbExperiment[]>([]);
+  const [isStopping, setIsStopping] = useState(false);
+
   // keeps track of auto-complete timers so we can cancel them if the user stops early
   // key = experiment id, value = the timeout handle
   const autoCompleteTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // fetch experiments from the database and orchestrator state when in live mode
+  const refreshFromBackend = useCallback(async () => {
+    if (!isLiveMode) return;
+    try {
+      const [orchState, dbExps] = await Promise.allSettled([
+        fetchOrchestratorState(),
+        fetchDbExperiments(50),
+      ]);
+      if (orchState.status === "fulfilled") setOrchestratorState(orchState.value);
+      if (dbExps.status === "fulfilled") setDbExperiments(dbExps.value);
+    } catch {
+      // silently fail - the orchestrator or db might not be running
+    }
+  }, [isLiveMode]);
+
+  // on mount and when live mode changes, pull from the backend
+  useEffect(() => {
+    refreshFromBackend();
+    // poll every 10 seconds to keep the orchestrator state fresh
+    if (isLiveMode) {
+      const interval = setInterval(refreshFromBackend, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [refreshFromBackend, isLiveMode]);
 
   // cleanup all timers when the component unmounts so we dont leak memory
   useEffect(() => {
@@ -108,41 +146,75 @@ export default function Experiments() {
     };
 
     // if we're in live mode, actually call the backend
+    // first try the orchestrator (port 8009) which handles the full lifecycle
+    // if that fails, fall back to calling the injection scripts directly
     if (isLiveMode) {
+      let orchestratorWorked = false;
       try {
-        let result: any;
-        if (injectionType === "cpu") {
-          result = await injectCpuStress(cpuPercent, cpuDuration);
-        } else if (injectionType === "latency") {
-          result = await injectLatency(latencyDelay);
-        } else if (injectionType === "packet_loss") {
-          result = await injectPacketLoss(packetLossPercent);
-        } else if (injectionType === "memory") {
-          result = await injectMemoryStress(memoryMb, memoryDuration);
-        }
-        // check if backend returned an error (e.g. "CPU stress already running")
-        // the backend returns { error: "..." } with a 200 status, not a thrown error
-        if (result && result.error) {
-          toast({
-            title: "Cannot start experiment",
-            description: result.error,
-            variant: "destructive",
-          });
-          setIsStarting(false);
-          return;
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        toast({
-          title: "Injection failed",
-          description: `Backend error: ${msg}. Experiment logged locally.`,
-          variant: "destructive",
+        // try orchestrator first - it creates the experiment in the database and
+        // coordinates the injection through the proper state machine
+        const created = await createExperiment({
+          name,
+          failure_type: injectionType,
+          parameters: params,
         });
+        const started = await startExperiment(created.experiment_id, params);
+        // use the orchestrator's experiment id so we can track it later
+        exp.id = created.experiment_id;
+        orchestratorWorked = true;
+
+        addLog({
+          timestamp: now,
+          eventType: "injection_started",
+          message: `Orchestrator started experiment: ${name} (id: ${created.experiment_id})`,
+        });
+
+        // refresh to pick up the new orchestrator state
+        refreshFromBackend();
+      } catch (orchErr) {
+        // orchestrator is unreachable - fall back to direct injection
+        const orchMsg = orchErr instanceof Error ? orchErr.message : "Unknown error";
         addLog({
           timestamp: now,
           eventType: "error",
-          message: `Failed to inject on backend: ${msg}`,
+          message: `Orchestrator unreachable (${orchMsg}), falling back to direct injection`,
         });
+
+        try {
+          let result: any;
+          if (injectionType === "cpu") {
+            result = await injectCpuStress(cpuPercent, cpuDuration);
+          } else if (injectionType === "latency") {
+            result = await injectLatency(latencyDelay);
+          } else if (injectionType === "packet_loss") {
+            result = await injectPacketLoss(packetLossPercent);
+          } else if (injectionType === "memory") {
+            result = await injectMemoryStress(memoryMb, memoryDuration);
+          }
+          // check if backend returned an error (e.g. "CPU stress already running")
+          // the backend returns { error: "..." } with a 200 status, not a thrown error
+          if (result && result.error) {
+            toast({
+              title: "Cannot start experiment",
+              description: result.error,
+              variant: "destructive",
+            });
+            setIsStarting(false);
+            return;
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast({
+            title: "Injection failed",
+            description: `Backend error: ${msg}. Experiment logged locally.`,
+            variant: "destructive",
+          });
+          addLog({
+            timestamp: now,
+            eventType: "error",
+            message: `Failed to inject on backend: ${msg}`,
+          });
+        }
       }
     }
 
@@ -179,27 +251,39 @@ export default function Experiments() {
   }
 
   // stops/resets a running experiment
+  // tries the orchestrator first, then falls back to direct reset calls
   async function handleStop(exp: Experiment) {
     const now = new Date().toISOString();
 
-    // if live mode, hit the reset endpoints
+    // if live mode, try orchestrator stop first, then fall back to direct resets
     if (isLiveMode) {
+      let orchestratorWorked = false;
       try {
-        if (exp.type === "cpu") {
-          await resetCpu();
-        } else if (exp.type === "memory") {
-          await resetMemory();
-        } else {
-          // both latency and packet loss use the network reset
-          await resetNetwork();
+        await stopExperiment(exp.id);
+        orchestratorWorked = true;
+        refreshFromBackend();
+      } catch {
+        // orchestrator didnt work, fall back to the direct reset endpoints
+      }
+
+      if (!orchestratorWorked) {
+        try {
+          if (exp.type === "cpu") {
+            await resetCpu();
+          } else if (exp.type === "memory") {
+            await resetMemory();
+          } else {
+            // both latency and packet loss use the network reset
+            await resetNetwork();
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast({
+            title: "Reset failed",
+            description: `Backend error: ${msg}`,
+            variant: "destructive",
+          });
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        toast({
-          title: "Reset failed",
-          description: `Backend error: ${msg}`,
-          variant: "destructive",
-        });
       }
     }
 
@@ -219,6 +303,45 @@ export default function Experiments() {
     });
 
     toast({ title: "Experiment stopped", description: exp.name });
+  }
+
+  // emergency stop - kills ALL running injections immediately
+  // this is the panic button, it tells the orchestrator to shut everything down
+  async function handleEmergencyStop() {
+    setIsStopping(true);
+    const now = new Date().toISOString();
+    try {
+      const result = await emergencyStop();
+      toast({
+        title: "Emergency stop executed",
+        description: result.note || "All injections have been stopped",
+      });
+      addLog({
+        timestamp: now,
+        eventType: "injection_stopped",
+        message: `Emergency stop: ${result.note || "all injections halted"}`,
+      });
+      // mark all running local experiments as stopped
+      experiments
+        .filter((e) => e.status === "running")
+        .forEach((e) => {
+          updateExperiment(e.id, { status: "stopped", stoppedAt: now });
+          // cancel any auto-complete timers
+          if (autoCompleteTimers.current[e.id]) {
+            clearTimeout(autoCompleteTimers.current[e.id]);
+            delete autoCompleteTimers.current[e.id];
+          }
+        });
+      refreshFromBackend();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      toast({
+        title: "Emergency stop failed",
+        description: `Could not reach orchestrator: ${msg}`,
+        variant: "destructive",
+      });
+    }
+    setIsStopping(false);
   }
 
   // figure out the badge color based on experiment status
@@ -261,6 +384,48 @@ export default function Experiments() {
           Configure and run chaos experiments on the distributed system
         </p>
       </div>
+
+      {/* orchestrator state and emergency stop - only shown in live mode when orchestrator is reachable */}
+      {isLiveMode && orchestratorState && (
+        <Card data-testid="card-orchestrator-status">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">Orchestrator:</span>
+                <Badge
+                  className={
+                    orchestratorState.state === "idle"
+                      ? "bg-gray-500/10 text-gray-500 border-gray-500/20"
+                      : orchestratorState.state === "running"
+                        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                        : orchestratorState.state === "stopping"
+                          ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                          : "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                  }
+                >
+                  {orchestratorState.state}
+                </Badge>
+                {orchestratorState.active_experiment_id && (
+                  <span className="text-xs text-muted-foreground">
+                    Active: {orchestratorState.active_experiment_id}
+                  </span>
+                )}
+              </div>
+              {/* the big red button - emergency stop kills everything */}
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleEmergencyStop}
+                disabled={isStopping}
+                data-testid="button-emergency-stop"
+              >
+                <OctagonX className="h-4 w-4 mr-1" />
+                {isStopping ? "Stopping..." : "Emergency Stop"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* --- experiment configuration panel --- */}
@@ -401,14 +566,15 @@ export default function Experiments() {
         </Card>
 
         {/* --- list of experiments --- */}
+        {/* in live mode we merge local experiments with ones from the database */}
         <Card className="lg:col-span-2" data-testid="card-experiment-list">
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Recent Experiments ({experiments.length})
+              Recent Experiments ({experiments.length}{isLiveMode && dbExperiments.length > 0 ? ` + ${dbExperiments.length} from database` : ""})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {experiments.length === 0 ? (
+            {experiments.length === 0 && dbExperiments.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <p className="text-sm">No experiments yet</p>
                 <p className="text-xs mt-1">
@@ -417,6 +583,7 @@ export default function Experiments() {
               </div>
             ) : (
               <div className="space-y-3">
+                {/* local experiments from the current session */}
                 {experiments.map((exp) => (
                   <div
                     key={exp.id}
@@ -451,6 +618,35 @@ export default function Experiments() {
                     </div>
                   </div>
                 ))}
+
+                {/* experiments from the database - shown in live mode */}
+                {/* we filter out any that are already in the local list to avoid duplicates */}
+                {isLiveMode && dbExperiments
+                  .filter((dbExp) => !experiments.some((e) => e.id === dbExp.experiment_id))
+                  .map((dbExp) => (
+                    <div
+                      key={dbExp.experiment_id}
+                      className="flex items-center justify-between gap-3 p-3 rounded-md border bg-card/50"
+                      data-testid={`card-db-experiment-${dbExp.experiment_id}`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-md bg-muted">
+                          {getTypeIcon(dbExp.failure_type)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{dbExp.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Started: {formatTime(dbExp.started_at)}
+                            {dbExp.ended_at && ` | Ended: ${formatTime(dbExp.ended_at)}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {getStatusBadge(dbExp.status)}
+                        <Badge variant="outline" className="text-xs">DB</Badge>
+                      </div>
+                    </div>
+                  ))}
               </div>
             )}
           </CardContent>

@@ -2,9 +2,10 @@
 // each log entry has a timestamp, type, and message
 // you can filter by event type to find what youre looking for
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -13,8 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Play, Square, Activity, AlertCircle } from "lucide-react";
-import { useAppState } from "@/lib/store";
+import { Play, Square, Activity, AlertCircle, RefreshCw } from "lucide-react";
+import { useAppState, type LogEntry } from "@/lib/store";
+import { fetchDbLogs, type DbLogEntry } from "@/lib/api";
 
 // the event types we track
 type EventFilter = "all" | "injection_started" | "injection_stopped" | "metric_collected" | "error";
@@ -72,14 +74,58 @@ function getEventBadge(eventType: string) {
 }
 
 export default function Logs() {
-  const { logs } = useAppState();
+  const { logs, isLiveMode } = useAppState();
   const [filter, setFilter] = useState<EventFilter>("all");
+  const [dbLogs, setDbLogs] = useState<DbLogEntry[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // fetch persisted logs from MongoDB when in live mode
+  const refreshDbLogs = useCallback(async () => {
+    if (!isLiveMode) return;
+    setIsRefreshing(true);
+    try {
+      const remote = await fetchDbLogs(200);
+      setDbLogs(remote);
+    } catch {
+      // database might not be running, thats fine
+    }
+    setIsRefreshing(false);
+  }, [isLiveMode]);
+
+  // load db logs on mount and when live mode changes
+  useEffect(() => {
+    refreshDbLogs();
+  }, [refreshDbLogs]);
+
+  // merge local session logs with persisted database logs
+  // we convert db logs to the same shape as local logs so the list looks uniform
+  // then deduplicate by timestamp+message to avoid showing the same event twice
+  const mergedLogs = useMemo(() => {
+    if (!isLiveMode || dbLogs.length === 0) return logs;
+
+    // convert db logs to the local LogEntry shape
+    const converted: LogEntry[] = dbLogs.map((dbLog) => ({
+      id: dbLog.log_id,
+      timestamp: dbLog.timestamp,
+      eventType: dbLog.event_type as LogEntry["eventType"],
+      message: dbLog.message,
+    }));
+
+    // merge and deduplicate - use a set of "timestamp|message" to check for dupes
+    const seen = new Set(logs.map((l) => `${l.timestamp}|${l.message}`));
+    const unique = converted.filter((c) => !seen.has(`${c.timestamp}|${c.message}`));
+
+    // combine and sort newest first
+    return [...logs, ...unique].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  }, [logs, dbLogs, isLiveMode]);
 
   // filter the logs based on what the user selected
   const filteredLogs = useMemo(() => {
-    if (filter === "all") return logs;
-    return logs.filter((log) => log.eventType === filter);
-  }, [logs, filter]);
+    if (filter === "all") return mergedLogs;
+    return mergedLogs.filter((log) => log.eventType === filter);
+  }, [mergedLogs, filter]);
 
   return (
     <div className="space-y-6">
@@ -93,7 +139,7 @@ export default function Logs() {
           </p>
         </div>
 
-        {/* filter dropdown */}
+        {/* filter dropdown and refresh button */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Filter:</span>
           <Select value={filter} onValueChange={(v) => setFilter(v as EventFilter)}>
@@ -108,6 +154,18 @@ export default function Logs() {
               <SelectItem value="error">Errors</SelectItem>
             </SelectContent>
           </Select>
+          {/* refresh button to re-fetch logs from the database */}
+          {isLiveMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshDbLogs}
+              disabled={isRefreshing}
+              data-testid="button-refresh-logs"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            </Button>
+          )}
         </div>
       </div>
 
