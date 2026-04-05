@@ -1,0 +1,4 @@
+pymongo
+influxdb-client
+python-dotenv
+redis
