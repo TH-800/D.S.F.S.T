@@ -84,7 +84,7 @@ def check_stress_ng_running() -> list[dict]:
                 if "stress-ng" in parent_name:
                     continue  # this is a worker child, not the master — skip it
             except (psutil.NoSuchProcess, psutil.AccessDenied):
-                # parent is gone or unreadable — treat this process as the master
+                # parent is gone or unreadable treat this process as the master
                 pass
 
             cmdline = proc.info["cmdline"] or []
@@ -114,7 +114,7 @@ def check_stress_ng_running() -> list[dict]:
                 bytes_idx = cmdline.index("--vm-bytes") if "--vm-bytes" in cmdline else -1
                 intensity = cmdline[bytes_idx + 1] if bytes_idx != -1 and bytes_idx + 1 < len(cmdline) else "?"
 
-            # Only report if we could identify the type — skip genuine unknowns
+            # Only report if we could identify the type skip genuine unknowns
             if stress_type == "unknown":
                 continue
 
@@ -171,7 +171,7 @@ def check_tc_netem_active() -> list[dict]:
 
                 if "delay" in output:
                     rule["type"] = "network_latency"
-                    # extract the delay value e.g. "delay 200ms"
+                    # extract the delay value like "delay 200ms"
                     parts = output.split()
                     try:
                         idx = parts.index("delay")
@@ -268,7 +268,7 @@ def determine_state(active_experiments: list, listening_ports: dict) -> str:
     if has_active_injections:
         return "running"
     if injection_services_up:
-        # services are alive but nothing is injecting — last run completed
+        # services are alive but nothing is injecting last run completed
         return "complete"
     return "idle"
 
