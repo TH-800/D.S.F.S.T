@@ -11,11 +11,11 @@
 #   python -m uvicorn experiment_orchestrator:app --host 127.0.0.1 --port 8009 --reload
 #
 # State machine:
-#   idle  ──► running ──► stopping ──► complete ──► idle
+#   idle  - running - stopping - complete - idle
 #
 # Redis keys (with 2 hour TTL so stale state doesn't linger):
-#   dsft:state              → idle | running | stopping | complete
-#   dsft:active_experiment  → experiment_id string
+#   dsft:state               idle | running | stopping | complete
+#   dsft:active_experiment   experiment_id string
 #
 # Endpoints:
 #   GET  /state                        current state machine state + active experiment
@@ -56,7 +56,7 @@ REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB   = int(os.getenv("REDIS_DB",   "0"))
  
-# Redis TTL for state keys 2 hours; prevents stale "running" state after a crash
+# Redis TTL for state keys 2 hours to prevents stale "running" state after a crash
 STATE_TTL_SECONDS = 7200
  
 # injection script URLs each script runs on its own port
@@ -76,7 +76,7 @@ RESET_ENDPOINTS = [
     ("memory reset",       "http://127.0.0.1:8007/reset/memory"),
 ]
  
-# emergency stop must complete within this many seconds (Task 2.5 requirement: 20s)
+# emergency stop must complete within this many seconds
 EMERGENCY_STOP_TIMEOUT = 20
  
    # App setup
@@ -123,7 +123,7 @@ class StateMachine:
     STATE_KEY      = "dsft:state"
     ACTIVE_EXP_KEY = "dsft:active_experiment"
  
-    # allowed transitions: current_state → set of valid next states
+    # allowed transitions: current_state to a set of valid next states
     TRANSITIONS = {
         "idle":     {"running"},
         "running":  {"stopping"},
@@ -284,7 +284,7 @@ def get_state():
 @app.post("/experiments", status_code=201)
 def create_experiment(body: CreateExperimentRequest):
     """
-    Task 3.1      POST /experiments
+    POST /experiments
     Creates a new experiment document in MongoDB with status 'created'.
     Does NOT start the injection yet      call /experiments/{id}/start for that.
  
@@ -323,7 +323,7 @@ def create_experiment(body: CreateExperimentRequest):
 @app.post("/experiments/{experiment_id}/start")
 def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExperimentRequest()):
     """
-    Task 3.1      POST /experiments/{id}/start
+    POST /experiments/{id}/start
     Starts the failure injection for an already-created experiment.
     Transitions state machine: idle/complete → running.
  
@@ -402,7 +402,7 @@ def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExp
                    f"Injection started: {failure_type}",
                    {"parameters": parameters, "injection_response": result})
     except PyMongoError as e:
-        # injection is running but we couldn't log      warn but don't crash
+        # injection is running but we couldn't log warn but don't crash
         print(f"[orchestrator] MongoDB update failed after injection start: {e}")
  
     #   transition state machine  
@@ -410,7 +410,7 @@ def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExp
         try:
             sm.transition("running", experiment_id=experiment_id)
         except (ValueError, redis.RedisError) as e:
-            # state machine error shouldn't stop us      injection is already running
+            # state machine error shouldn't stop us  injection is already running
             print(f"[orchestrator] State machine transition failed: {e}")
  
     return {
