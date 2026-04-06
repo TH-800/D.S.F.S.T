@@ -3,9 +3,9 @@
 # every 5 seconds and persists the data to InfluxDB (metrics) and MongoDB (experiment state).
 #
 # What it writes:
-#   InfluxDB  -> cpu, memory, network measurements every 5 seconds
-#   MongoDB   -> experiment documents (created/updated on state changes)
-#   MongoDB   -> log entries whenever state changes or injections start/stop
+#   InfluxDB   cpu, memory, network measurements every 5 seconds
+#   MongoDB    experiment documents (created/updated on state changes)
+#   MongoDB    log entries whenever state changes or injections start/stop
 #
 # Setup
 #   pip install pymongo influxdb-client python-dotenv requests
