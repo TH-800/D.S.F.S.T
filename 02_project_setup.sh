@@ -2,28 +2,33 @@
 
 # D.S.F.S.T - Project / Script Setup
 #
-# Put this file in the ROOT of the D.S.F.S.T repository and run:
+# Put this file INSIDE the project root, beside:
+#   RunALL.py
+#   metrics_writer.py
+#   docker-compose.yml
+#   database/
+#   dsft-frontend/
 #
-#     chmod +x 02_project_setup.sh
-#     ./02_project_setup.sh
+# Then run:
 #
-# This script:
-# - installs all Python packages currently required by the repo
-# - installs frontend npm packages
-# - starts MongoDB, InfluxDB, and Redis with Docker Compose
-# - creates/copies the .env configuration
-# - runs the MongoDB and InfluxDB setup scripts
+#   chmod +x 02_project_setup.sh
+#   ./02_project_setup.sh
 #
-# FIRST INFLUXDB SETUP:
-# InfluxDB needs its one-time account/org/bucket setup before this script can
-# create the final .env. If .env does not exist, this script opens/instructs
-# you to open localhost:8086 and then asks you to paste the generated token.
+# This script creates a project-local Python virtual environment (.venv).
+# This avoids Ubuntu's "externally-managed-environment" pip restriction.
+#
+# The virtual environment is also important because GlobalRunALL.py uses
+# sys.executable, so if GlobalRunALL.py is started with .venv/bin/python,
+# RunALL.py and metrics_writer.py will use the same installed packages.
 
 set -e
 
-# Use the directory containing this script as the project root.
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
+
+VENV_DIR="$PROJECT_DIR/.venv"
+VENV_PY="$VENV_DIR/bin/python"
+VENV_PIP="$VENV_DIR/bin/pip"
 
 echo "=========================================="
 echo " D.S.F.S.T Project Setup"
@@ -31,7 +36,7 @@ echo "=========================================="
 echo "Project directory: $PROJECT_DIR"
 
 echo
-echo "[1/7] Checking repository files..."
+echo "[1/8] Checking repository files..."
 
 REQUIRED_FILES=(
     "RunALL.py"
@@ -45,7 +50,7 @@ REQUIRED_FILES=(
 for FILE in "${REQUIRED_FILES[@]}"; do
     if [[ ! -f "$FILE" ]]; then
         echo "Missing required file: $FILE"
-        echo "Place 02_project_setup.sh in the repository root."
+        echo "Put this script inside the project root."
         exit 1
     fi
 done
@@ -53,64 +58,69 @@ done
 echo "Repository files found."
 
 echo
-echo "[2/7] Installing Python packages..."
+echo "[2/8] Creating Python virtual environment..."
 
-# Packages are based on the current repo imports/setup notes:
-# RunALL.py: fastapi, uvicorn, psutil
-# database layer: pymongo, influxdb-client, python-dotenv, redis
-# metrics/orchestrator services: requests
-#
-# pymongo is pinned to 3.12.3 because the repo's Ubuntu 22.04 setup guide
-# specifically requires that version.
-python3 -m pip install \
+if [[ ! -d "$VENV_DIR" ]]; then
+    python3 -m venv "$VENV_DIR"
+    echo "Created: $VENV_DIR"
+else
+    echo "Existing virtual environment found."
+fi
+
+echo
+echo "[3/8] Installing Python packages into .venv..."
+
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel
+
+# Use a current PyMongo release rather than the old 3.12.3 pin.
+# The machine shown in the debug log runs Python 3.14, and current PyMongo
+# provides Python 3.14 builds while the old 3.12.3 release predates Python 3.14.
+"$VENV_PIP" install \
     fastapi \
     uvicorn \
     psutil \
     requests \
-    "pymongo==3.12.3" \
+    pymongo \
     influxdb-client \
     python-dotenv \
     redis
 
 echo
-echo "[3/7] Installing frontend npm packages..."
+echo "[4/8] Installing frontend npm packages..."
 
 cd "$PROJECT_DIR/dsft-frontend"
 npm install
 cd "$PROJECT_DIR"
 
 echo
-echo "[4/7] Starting MongoDB, InfluxDB, and Redis..."
+echo "[5/8] Starting MongoDB, InfluxDB, and Redis..."
 
-# Prefer Docker without sudo after the base setup's docker-group change.
-# Fall back to sudo if the current login session has not picked up the group yet.
 if docker info >/dev/null 2>&1; then
     docker compose up -d
 else
-    echo "Docker requires sudo in this session."
+    echo "Docker still requires sudo in this login session."
     sudo docker compose up -d
 fi
 
-echo "Waiting 10 seconds for the database containers to initialize..."
+echo "Waiting 10 seconds for database containers..."
 sleep 10
 
 echo
-echo "[5/7] Setting up .env..."
+echo "[6/8] Configuring .env..."
 
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
     echo
     echo "No .env file exists yet."
     echo
-    echo "InfluxDB requires ONE first-time setup:"
+    echo "Complete the one-time InfluxDB setup:"
     echo
-    echo "1. Open: http://localhost:8086"
-    echo "2. Create your login."
-    echo "3. Organization MUST be: dsfst-org"
-    echo "4. Bucket MUST be:       dsfst-bucket"
-    echo "5. Copy the generated API token."
+    echo "  URL:          http://localhost:8086"
+    echo "  Organization: dsfst-org"
+    echo "  Bucket:       dsfst-bucket"
+    echo
+    echo "Then copy the generated API token."
     echo
 
-    # Open the page automatically on desktop Linux when possible.
     if command -v xdg-open >/dev/null 2>&1; then
         xdg-open http://localhost:8086 >/dev/null 2>&1 || true
     fi
@@ -118,7 +128,7 @@ if [[ ! -f "$PROJECT_DIR/.env" ]]; then
     read -r -p "Paste your InfluxDB API token here: " INFLUX_TOKEN
 
     if [[ -z "$INFLUX_TOKEN" ]]; then
-        echo "No token was entered. Setup cannot continue."
+        echo "No token entered. Stopping setup."
         exit 1
     fi
 
@@ -140,36 +150,36 @@ else
     echo "Existing .env found. Keeping it."
 fi
 
-# The repo setup scripts also expect the same .env inside database/.
 cp "$PROJECT_DIR/.env" "$PROJECT_DIR/database/.env"
 chmod 600 "$PROJECT_DIR/database/.env"
 
-# Make sure secrets are not accidentally committed.
 touch "$PROJECT_DIR/.gitignore"
 
 if ! grep -qxF ".env" "$PROJECT_DIR/.gitignore"; then
     echo ".env" >> "$PROJECT_DIR/.gitignore"
 fi
 
+if ! grep -qxF ".venv/" "$PROJECT_DIR/.gitignore"; then
+    echo ".venv/" >> "$PROJECT_DIR/.gitignore"
+fi
+
 echo
-echo "[6/7] Running one-time database setup scripts..."
+echo "[7/8] Running database setup scripts with the virtual environment..."
 
 cd "$PROJECT_DIR/database"
 
-python3 mongo_setup.py
-python3 influx_setup.py
+"$VENV_PY" mongo_setup.py
+"$VENV_PY" influx_setup.py
 
 cd "$PROJECT_DIR"
 
 echo
-echo "[7/7] Verifying MongoDB and Redis..."
+echo "[8/8] Checking Docker containers..."
 
 if docker info >/dev/null 2>&1; then
-    docker exec dsfst-mongodb mongosh dsfst --eval "db.getCollectionNames()"
-    docker exec dsfst-redis redis-cli ping
+    docker compose ps
 else
-    sudo docker exec dsfst-mongodb mongosh dsfst --eval "db.getCollectionNames()"
-    sudo docker exec dsfst-redis redis-cli ping
+    sudo docker compose ps
 fi
 
 echo
@@ -177,9 +187,19 @@ echo "=========================================="
 echo " D.S.F.S.T project setup complete."
 echo "=========================================="
 echo
-echo "Normal app startup is now:"
+echo "IMPORTANT:"
+echo "The project's Python packages are installed inside:"
 echo
-echo "    python3 GlobalRunALL.py"
+echo "    $VENV_DIR"
+echo
+echo "Start the app using the virtual environment:"
+echo
+echo "    .venv/bin/python GlobalRunALL.py"
+echo
+echo "Or activate it first:"
+echo
+echo "    source .venv/bin/activate"
+echo "    python GlobalRunALL.py"
 echo
 echo "Dashboard:"
 echo

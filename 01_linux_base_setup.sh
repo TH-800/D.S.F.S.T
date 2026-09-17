@@ -5,14 +5,18 @@
 #
 # Installs:
 # - Docker Engine + Docker Compose plugin
-# - Python 3 + pip
+# - Python 3 + pip + venv support
 # - stress-ng for CPU/memory failure injection
-# - Linux networking/ping tools used by the project
+# - Linux networking/ping tools
 # - Git
-# - Node.js 22 + npm for the frontend
+# - Node.js 22 + npm
+# - util-linux-extra so the "newgrp" command is available on newer Ubuntu
 #
-# The D.S.F.S.T setup guide targets Ubuntu 22.04.
-# This script also supports normal Debian installs.
+# After this script finishes, either:
+#   1. log out and back in, OR
+#   2. run: newgrp docker
+#
+# Then run 02_project_setup.sh from inside the project folder.
 
 set -e
 
@@ -20,19 +24,17 @@ echo "=========================================="
 echo " D.S.F.S.T Base Linux Setup"
 echo "=========================================="
 
-# Read Linux distribution information.
 . /etc/os-release
 
 if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
-    echo "This setup script is intended for Ubuntu or Debian."
-    echo "Detected distribution: $ID"
+    echo "This script is intended for Ubuntu or Debian."
+    echo "Detected: $ID"
     exit 1
 fi
 
 echo
 echo "[1/7] Removing conflicting/old Docker packages if present..."
 
-# These may not exist on a fresh machine, so failures here are ignored.
 sudo apt remove -y \
     docker.io \
     docker-compose \
@@ -44,7 +46,7 @@ sudo apt remove -y \
     runc 2>/dev/null || true
 
 echo
-echo "[2/7] Updating apt and installing base Linux packages..."
+echo "[2/7] Installing base Linux packages..."
 
 sudo apt update
 
@@ -59,10 +61,11 @@ sudo apt install -y \
     python3-venv \
     stress-ng \
     iproute2 \
-    iputils-ping
+    iputils-ping \
+    util-linux-extra
 
 echo
-echo "[3/7] Adding Docker's official package repository..."
+echo "[3/7] Adding Docker's official repository..."
 
 sudo install -m 0755 -d /etc/apt/keyrings
 
@@ -71,8 +74,6 @@ sudo curl -fsSL "https://download.docker.com/linux/$ID/gpg" \
 
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-# Ubuntu derivatives can expose UBUNTU_CODENAME.
-# Normal Ubuntu/Debian uses VERSION_CODENAME.
 if [[ "$ID" == "ubuntu" ]]; then
     DOCKER_SUITE="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
 else
@@ -102,29 +103,24 @@ sudo apt install -y \
 
 sudo systemctl enable --now docker
 
-# Add the current user to the docker group.
-# The group change takes effect after logging out/in or running: newgrp docker
+# Allows this user to run Docker without sudo after a new login/newgrp.
 sudo usermod -aG docker "$USER"
 
 echo
 echo "[5/7] Installing Node.js 22 and npm..."
 
-# The frontend uses modern Vite/TypeScript tooling.
-# Ubuntu 22.04's default Node package is too old, so use NodeSource.
 curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh
-sudo -E bash /tmp/nodesource_setup.sh
+sudo bash /tmp/nodesource_setup.sh
 sudo apt install -y nodejs
 rm -f /tmp/nodesource_setup.sh
 
 echo
-echo "[6/7] Applying the repo's Docker VM networking fix when needed..."
+echo "[6/7] Applying the repo's VMware/VirtualBox Docker networking fix when needed..."
 
-# The project guide includes this systemd service for VMware/VirtualBox.
 VIRT="$(systemd-detect-virt 2>/dev/null || true)"
 
 if [[ "$VIRT" == "vmware" || "$VIRT" == "oracle" ]]; then
     echo "Virtual machine detected: $VIRT"
-    echo "Installing docker-iptables-fix.service..."
 
     sudo tee /etc/systemd/system/docker-iptables-fix.service > /dev/null <<'EOF'
 [Unit]
@@ -165,15 +161,10 @@ echo "=========================================="
 echo " Base Linux setup complete."
 echo "=========================================="
 echo
-echo "IMPORTANT:"
 echo "Docker group access was added for user: $USER"
 echo
-echo "Log out and back in ONCE before using Docker without sudo."
-echo "Alternatively, run:"
+echo "Either log out and back in once, or run:"
 echo
 echo "    newgrp docker"
 echo
-echo "After that, run the second script from the D.S.F.S.T repo root:"
-echo
-echo "    ./02_project_setup.sh"
-echo
+echo "Then run 02_project_setup.sh from the project root."
