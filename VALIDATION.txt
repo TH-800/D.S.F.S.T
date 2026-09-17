@@ -1,0 +1,23 @@
+VALIDATION OF THIS REVISION
+===========================
+
+PASS: Bash syntax for both revised scripts
+PASS: Configuration/source-patch rerun is byte-for-byte repeatable and preserves the token
+PASS: All 17 project Python files parse after existing patches; launcher Python blocks parse
+PASS: Generated YAML: all three DB ports are loopback-only with no fixed published port; volume names retained
+PASS: 553 exact sudo rules per interface, on three interfaces; conventional visudo 1.9.16p2 accepts them
+PASS: Exact rules cover every permitted command emitted by both network APIs, including reset; subprocess calls mocked
+PASS: Actual launcher port-discovery/env-update block handles changing mappings and repeat runs; Docker calls mocked
+PASS: Launcher refuses to continue without a completed installation
+PASS: Existing application source patch block unchanged; no database deletion/prune commands added
+
+LIMITATIONS
+-----------
+The installed parser tested here is conventional visudo 1.9.16p2, not sudo-rs.
+The revised rules use exact command arguments, avoiding the rejected wildcard
+syntax. The installer validates them again using the VM's own visudo.
+
+Docker port-discovery calls were mocked. YAML parsing and configuration
+updates were tested, but Docker Engine/Compose were not available to run real
+containers. No package installation or full Ubuntu/VMware app run was done.
+No tc command or network experiment was executed by these tests.

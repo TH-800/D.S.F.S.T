@@ -1,0 +1,101 @@
+D.S.F.S.T: START HERE
+====================
+
+FOR YOUR EXISTING PROJECT FOLDER
+--------------------------------
+Replace BOTH install_dsfst.sh and start_dsfst.sh with these copies.
+Keep your existing project folder, .dsfst/, .env files, and Docker volumes.
+Do not delete .dsfst/influx-token or use docker compose down -v.
+These files also come in the full project ZIP for a fresh installation.
+
+From a terminal inside the project folder, run as your normal Ubuntu user:
+
+    bash install_dsfst.sh && bash start_dsfst.sh
+
+Do not add sudo before bash. Enter your VM user's administrator password
+when requested. Use a local terminal inside the VM for network experiments.
+The installer does not start the application, but starts/enables Docker.
+The launcher starts the databases, database setup scripts, RunALL.py and
+metrics_writer.py. Do not also start RunALL.py or 02_project_setup.sh yourself.
+
+Later launches:
+
+    bash start_dsfst.sh
+
+WHAT CHANGED IN THIS REVISION
+-----------------------------
+1. Replaces the rejected sudo argument wildcards with exact tc commands for
+   the detected default interface: integer delay 0..500 ms, packet loss
+   0..50 percent, and reset. No unrestricted sudo or unrestricted tc rule.
+   Validates the generated rule with your installed visudo before installing
+   /etc/sudoers.d/dsfst-<user-id>. There is no manual visudo step.
+   Rerun the installer if the VM's default network interface changes.
+
+2. Lets Docker choose available local host ports for MongoDB, InfluxDB,
+   and Redis. The launcher reads their assigned ports and updates ONLY
+   MONGO_URI, INFLUXDB_URL, and REDIS_PORT in both .env files before starting
+   the application. Existing unrelated services are not stopped or removed.
+   Database containers belonging to dsfst-vm may be recreated by Compose
+   to apply the new port mappings; their existing named volumes are kept.
+   The new stack does not import data from an older, separate database stack.
+
+3. Writes .dsfst/install-complete only after a successful installation.
+   The launcher refuses to start after an incomplete installation.
+
+Everything else in the prior corrected installer is retained, including
+its Docker/NodeSource repository-conflict fix and the previously disclosed
+source/configuration changes. No further application source patches were added.
+The installer generates the local configuration on the VM; this source ZIP
+is not an offline installer and does not contain a preinstalled environment.
+
+OPEN INSIDE THE VM
+------------------
+Dashboard: http://localhost:3000/#/
+InfluxDB: use the exact URL printed by start_dsfst.sh.
+It is no longer guaranteed to be port 8086 and may change after container
+recreation. The application connection settings are updated on each launch.
+To show the last assigned addresses from inside the project folder:
+
+    cat .dsfst/addresses.txt
+
+Database username: test1234
+Database password: test1234
+The existing generated InfluxDB token is preserved across installer reruns.
+These credentials are for a local test VM, not production use.
+
+STOP
+----
+Press Ctrl+C in the launcher terminal. The launcher attempts to stop active
+experiments and terminates the application processes it launched. Database
+containers remain running. To stop this stack's database containers too:
+
+    sudo docker compose --project-name dsfst-vm --project-directory "$PWD" --env-file "$PWD/.env" -f "$PWD/.dsfst/compose.yaml" stop
+
+RETAINED INSTALLER BEHAVIOUR
+--------------------------
+Requires Ubuntu x86-64, a normal user with sudo, internet access, and AVX
+available to the VM. Installs Python/frontend dependencies, Docker Compose,
+Node.js 22, monitoring tools, stress-ng, and network-emulation support.
+Reuses existing Docker/NodeSource repositories. Removes only the earlier
+installer's dsfst-docker.list and dsfst-node.list entries before APT update.
+Starts Docker and enables it at boot. Downloads the database images.
+
+Creates .venv/, node_modules/, .dsfst/compose.yaml, Redis configuration,
+.env and database/.env; adjusts .gitignore. Installer reruns rewrite both
+.env files with the configured test credentials; the launcher then updates
+their database endpoints. Keep any custom configuration backed up separately.
+
+Retains the previous source patches: Redis authentication in
+experiment_orchestrator.py, interface selection and reset-result handling
+in both network injection scripts, and Python 3.10 UTC compatibility in
+database/sample_data.py. First originals are saved under .dsfst/originals/.
+The bundled original docker-compose.yml, RunALL.py, frontend source, and
+older setup guides are unchanged. Follow THIS guide for these two scripts.
+
+Application ports 3000 and 8000-8010 must still be free. Automatic database
+ports solve the reported database port collision, not application port clashes.
+
+VALIDATION
+----------
+See the accompanying validation summary. A complete installation and live
+application startup on Ubuntu/VMware have not been tested in this environment.
