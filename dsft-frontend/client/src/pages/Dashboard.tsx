@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Cpu, MemoryStick, Wifi, Clock, Activity, Server } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useAppState } from "@/lib/store";
+import VmSwitcher from "@/components/VmSwitcher";
 import {
   getMockCpuData,
   getMockMemoryData,
@@ -85,7 +86,8 @@ function formatTime(ts: string) {
 }
 
 export default function Dashboard() {
-  const { isLiveMode, setIsLiveMode, addLog } = useAppState();
+  const { isLiveMode, setIsLiveMode, addLog, vms, selectedVmId } = useAppState();
+  const selectedVm = vms.find((vm) => vm.id === selectedVmId) ?? vms[0];
 
   // state for the three metric types
   const [cpuData, setCpuData] = useState<CpuData | null>(null);
@@ -264,6 +266,9 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* VM switcher + add VM (SCRUM-7 / SCRUM-8) */}
+          <VmSwitcher />
+
           {/* toggle between mock and live data */}
           <div className="flex items-center gap-2">
             <Label htmlFor="live-toggle" className="text-sm">
@@ -319,7 +324,7 @@ export default function Dashboard() {
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Container: {cpuData.container_id}</span>
+                  <span>Container: {selectedVm?.name ?? cpuData.container_id}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {formatTime(cpuData.timestamp)}
@@ -358,7 +363,7 @@ export default function Dashboard() {
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Container: {memData.container_id}</span>
+                  <span>Container: {selectedVm?.name ?? memData.container_id}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {formatTime(memData.timestamp)}
@@ -410,7 +415,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Host: {netData.host}</span>
+                  <span>Host: {selectedVm?.ip ?? netData.host}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {formatTime(netData.timestamp)}

@@ -25,6 +25,13 @@ export interface LogEntry {
   message: string;
 }
 
+// a registered VM/machine that the dashboard can point at
+export interface Vm {
+  id: string;
+  name: string;
+  ip: string;
+}
+
 // completed experiment reports with before/during/after metrics
 export interface Report {
   id: string;
@@ -57,6 +64,12 @@ interface AppState {
 
   // experiment reports
   reports: Report[];
+
+  // registered VMs (SCRUM-6/7/8 - VM registry)
+  vms: Vm[];
+  addVm: (vm: Omit<Vm, "id">) => void;
+  selectedVmId: string;
+  setSelectedVmId: (id: string) => void;
 }
 
 // create the context with a default value of undefined
@@ -111,12 +124,25 @@ const defaultReports: Report[] = [
 
 // --- the provider component that wraps our app ---
 
+// default VM so the dashboard has something to show before anyone registers one
+const defaultVms: Vm[] = [{ id: "vm-default", name: "dsft-node-01", ip: "10.0.0.1" }];
+
 export function AppProvider({ children }: { children: ReactNode }) {
   // default to mock data mode since the backend probably isnt running
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [reports] = useState<Report[]>(defaultReports);
+
+  // VM registry - list of machines the dashboard can point at, plus which one is selected
+  const [vms, setVms] = useState<Vm[]>(defaultVms);
+  const [selectedVmId, setSelectedVmId] = useState<string>(defaultVms[0].id);
+
+  // add a newly registered VM to the list (SCRUM-7 - Add VM form)
+  const addVm = useCallback((vm: Omit<Vm, "id">) => {
+    const newVm: Vm = { ...vm, id: makeId() };
+    setVms((prev) => [...prev, newVm]);
+  }, []);
 
   // add a new experiment to the list
   const addExperiment = useCallback((exp: Experiment) => {
@@ -147,6 +173,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         logs,
         addLog,
         reports,
+        vms,
+        addVm,
+        selectedVmId,
+        setSelectedVmId,
       }}
     >
       {children}
