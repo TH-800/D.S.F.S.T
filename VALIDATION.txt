@@ -36,3 +36,14 @@ Windows VirtualBox clone launcher (2026-09-24):
   its existing data remained in place. Its dashboard and checked APIs
   returned HTTP 200 after startup.
 - PowerShell parser and Bash syntax checks passed for the new scripts.
+
+Database/API probe smoke (2026-09-24 UTC):
+- Seventeen local smoke tests passed, including GET/POST handling and API path
+  validation for dsfst_probe.py.
+- In DSFST-User-001, `dsfst_probe.py status` returned HTTP 200 from the
+  monitor, metrics API, and orchestrator after service startup.
+- Direct connections to MongoDB, InfluxDB, and Redis succeeded. The InfluxDB
+  query returned recent CPU, memory, and network fields; Redis was idle.
+- A POST with an empty JSON body reached /experiments and returned HTTP 422 as
+  expected. It created no experiment and started no injection.
+- DSFST-User-001 was shut down cleanly after the check.
