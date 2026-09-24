@@ -5,8 +5,10 @@
 #pip install "fastapi[standard]"
 #sudo apt install stress-ng 
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 import subprocess # import for running external commands via python 
 # so we can pass shell commands to the console 
 import os # import for working with system level operations 
@@ -16,13 +18,23 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 
-CONTAINER_ID = "LinuxMachineHere"
+
+@app.middleware("http")
+async def protect_local_api(request, call_next):
+    allowed = {"http://localhost:3000", "http://127.0.0.1:3000"}
+    origin = request.headers.get("origin")
+    host = request.url.hostname
+    if host not in ("localhost", "127.0.0.1") or (origin and origin not in allowed):
+        return JSONResponse({"detail": "Local dashboard access only"}, status_code=403)
+    return await call_next(request)
+
+CONTAINER_ID = "host"
 
 # track cpu stress process so we dont kill all stress-ng processes and make a variable to store it in
 cpu_process = None
@@ -85,7 +97,11 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
 @app.post("/inject/cpu")
 def api_cpu_stress(cpu_percent: int, duration: int = 30):
-    return inject_cpu_stress(cpu_percent, duration)
+    result = inject_cpu_stress(cpu_percent, duration)
+    if "error" in result:
+        raise HTTPException(status_code=409 if "already running" in result["error"] else 422,
+                            detail=result["error"])
+    return result
 
 @app.post("/reset/cpu")
 def reset_cpu_stress():

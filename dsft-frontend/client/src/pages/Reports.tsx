@@ -67,7 +67,8 @@ function getTypeLabel(type: string) {
 }
 
 // shows a little trend arrow comparing two values
-function TrendIndicator({ before, during }: { before: number; during: number }) {
+function TrendIndicator({ before, during }: { before: number | null; during: number | null }) {
+  if (before == null || during == null) return <span className="text-xs text-muted-foreground">N/A</span>;
   const diff = during - before;
   const pct = before > 0 ? Math.round((diff / before) * 100) : 0;
 
@@ -100,6 +101,8 @@ export default function Reports() {
   // live mode state - reports from the database and aggregate stats
   const [summaries, setSummaries] = useState<ReportSummary[]>([]);
   const [aggregateStats, setAggregateStats] = useState<AggregateStats | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   // tracks which experiment reports the user has expanded to see details
   const [expandedReports, setExpandedReports] = useState<Record<string, ExperimentReport>>({});
   const [loadingReport, setLoadingReport] = useState<string | null>(null);
@@ -107,15 +110,21 @@ export default function Reports() {
   // fetch report summaries and aggregate stats from the backend
   const refreshReports = useCallback(async () => {
     if (!isLiveMode) return;
+    setLoadError(null);
     try {
       const [sums, stats] = await Promise.allSettled([
         fetchReportsSummary(20),
         fetchAggregateStats(),
       ]);
       if (sums.status === "fulfilled") setSummaries(sums.value);
+      else {
+        setSummaries([]);
+        setLoadError("Live reports are unavailable.");
+      }
       if (stats.status === "fulfilled") setAggregateStats(stats.value);
+      else setAggregateStats(null);
     } catch {
-      // backend might not be running
+      setLoadError("Live reports are unavailable.");
     }
   }, [isLiveMode]);
 
@@ -136,11 +145,12 @@ export default function Reports() {
 
     // fetch the detailed report
     setLoadingReport(id);
+    setDetailError(null);
     try {
       const report = await fetchExperimentReport(id);
       setExpandedReports((prev) => ({ ...prev, [id]: report }));
     } catch {
-      // couldnt fetch - maybe the experiment doesnt have metrics yet
+      setDetailError(`Could not load metrics for experiment ${id}.`);
     }
     setLoadingReport(null);
   }
@@ -171,7 +181,7 @@ export default function Reports() {
   }
 
   // decide which reports to show - live summaries from the database or local mock reports
-  const showLiveReports = isLiveMode && summaries.length > 0;
+  const showLiveReports = isLiveMode;
 
   return (
     <div className="space-y-6">
@@ -198,6 +208,12 @@ export default function Reports() {
           </Button>
         )}
       </div>
+
+      {isLiveMode && (loadError || detailError) && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3 text-sm text-red-400">
+          {loadError || detailError}
+        </div>
+      )}
 
       {/* aggregate stats from the reports aggregator (port 8010) */}
       {isLiveMode && aggregateStats && (
@@ -244,6 +260,11 @@ export default function Reports() {
       {/* live reports from the database - clickable to expand detailed metrics */}
       {showLiveReports ? (
         <div className="grid grid-cols-1 gap-4">
+          {summaries.length === 0 && (
+            <Card><CardContent className="py-12 text-center text-muted-foreground">
+              {loadError || "No completed live experiments to report on."}
+            </CardContent></Card>
+          )}
           {summaries.map((summary) => {
             const detail = expandedReports[summary.id];
             const isLoading = loadingReport === summary.id;
@@ -298,7 +319,10 @@ export default function Reports() {
                 </CardHeader>
 
                 {/* expanded detail view with baseline/peak/avg metrics */}
-                {detail && (
+                {detail && (!detail.baseline || !detail.peak || !detail.avgDuringTest) && (
+                  <CardContent className="text-sm text-muted-foreground">Metrics are unavailable for this experiment.</CardContent>
+                )}
+                {detail && detail.baseline && detail.peak && detail.avgDuringTest && (
                   <CardContent>
                     <div className="rounded-md border overflow-hidden">
                       <table className="w-full text-sm">
@@ -314,27 +338,27 @@ export default function Reports() {
                         <tbody>
                           <tr className="border-t">
                             <td className="p-2 text-muted-foreground">CPU Usage</td>
-                            <td className="p-2 text-right font-mono">{detail.baseline.cpuPercent}%</td>
-                            <td className="p-2 text-right font-mono font-medium">{detail.peak.cpuPercent}%</td>
-                            <td className="p-2 text-right font-mono">{detail.avgDuringTest.cpuPercent}%</td>
+                            <td className="p-2 text-right font-mono">{detail.baseline.cpuPercent == null ? "N/A" : `${detail.baseline.cpuPercent}%`}</td>
+                            <td className="p-2 text-right font-mono font-medium">{detail.peak.cpuPercent == null ? "N/A" : `${detail.peak.cpuPercent}%`}</td>
+                            <td className="p-2 text-right font-mono">{detail.avgDuringTest.cpuPercent == null ? "N/A" : `${detail.avgDuringTest.cpuPercent}%`}</td>
                             <td className="p-2 text-right">
                               <TrendIndicator before={detail.baseline.cpuPercent} during={detail.peak.cpuPercent} />
                             </td>
                           </tr>
                           <tr className="border-t">
                             <td className="p-2 text-muted-foreground">Memory</td>
-                            <td className="p-2 text-right font-mono">{detail.baseline.memoryPercent}%</td>
-                            <td className="p-2 text-right font-mono font-medium">{detail.peak.memoryPercent}%</td>
-                            <td className="p-2 text-right font-mono">{detail.avgDuringTest.memoryPercent}%</td>
+                            <td className="p-2 text-right font-mono">{detail.baseline.memoryPercent == null ? "N/A" : `${detail.baseline.memoryPercent}%`}</td>
+                            <td className="p-2 text-right font-mono font-medium">{detail.peak.memoryPercent == null ? "N/A" : `${detail.peak.memoryPercent}%`}</td>
+                            <td className="p-2 text-right font-mono">{detail.avgDuringTest.memoryPercent == null ? "N/A" : `${detail.avgDuringTest.memoryPercent}%`}</td>
                             <td className="p-2 text-right">
                               <TrendIndicator before={detail.baseline.memoryPercent} during={detail.peak.memoryPercent} />
                             </td>
                           </tr>
                           <tr className="border-t">
                             <td className="p-2 text-muted-foreground">Latency</td>
-                            <td className="p-2 text-right font-mono">{detail.baseline.latencyMs} ms</td>
-                            <td className="p-2 text-right font-mono font-medium">{detail.peak.latencyMs} ms</td>
-                            <td className="p-2 text-right font-mono">{detail.avgDuringTest.latencyMs} ms</td>
+                            <td className="p-2 text-right font-mono">{detail.baseline.latencyMs == null ? "N/A" : `${detail.baseline.latencyMs} ms`}</td>
+                            <td className="p-2 text-right font-mono font-medium">{detail.peak.latencyMs == null ? "N/A" : `${detail.peak.latencyMs} ms`}</td>
+                            <td className="p-2 text-right font-mono">{detail.avgDuringTest.latencyMs == null ? "N/A" : `${detail.avgDuringTest.latencyMs} ms`}</td>
                             <td className="p-2 text-right">
                               <TrendIndicator before={detail.baseline.latencyMs} during={detail.peak.latencyMs} />
                             </td>

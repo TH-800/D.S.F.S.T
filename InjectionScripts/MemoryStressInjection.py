@@ -5,8 +5,10 @@
 #pip install "fastapi[standard]"
 #sudo apt install stress-ng 
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 import subprocess
 from datetime import datetime
 import os
@@ -14,13 +16,23 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 
-CONTAINER_ID = "LinuxMachineHere"
+
+@app.middleware("http")
+async def protect_local_api(request, call_next):
+    allowed = {"http://localhost:3000", "http://127.0.0.1:3000"}
+    origin = request.headers.get("origin")
+    host = request.url.hostname
+    if host not in ("localhost", "127.0.0.1") or (origin and origin not in allowed):
+        return JSONResponse({"detail": "Local dashboard access only"}, status_code=403)
+    return await call_next(request)
+
+CONTAINER_ID = "host"
 
   #track memory stress process
 memory_process = None
@@ -90,7 +102,11 @@ def inject_memory_stress(memory_mb: int, duration: int):
 
 @app.post("/inject/memory")
 def api_memory_stress(memory_mb: int, duration: int = 30):
-    return inject_memory_stress(memory_mb, duration)
+    result = inject_memory_stress(memory_mb, duration)
+    if "error" in result:
+        raise HTTPException(status_code=409 if "already running" in result["error"] else 422,
+                            detail=result["error"])
+    return result
 
 
 @app.post("/reset/memory")
@@ -102,7 +118,11 @@ def reset_memory_stress():
 
     if memory_process and memory_process.poll() is None:
         memory_process.terminate()
-        memory_process.wait(timeout=5)
+        try:
+            memory_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            memory_process.kill()
+            memory_process.wait(timeout=3)
         memory_process = None
         return {"message": "Memory stress stopped"}
 

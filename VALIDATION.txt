@@ -1,23 +1,38 @@
-VALIDATION OF THIS REVISION
-===========================
+D.S.F.S.T validation (2026-09-23)
+=================================
 
-PASS: Bash syntax for both revised scripts
-PASS: Configuration/source-patch rerun is byte-for-byte repeatable and preserves the token
-PASS: All 17 project Python files parse after existing patches; launcher Python blocks parse
-PASS: Generated YAML: all three DB ports are loopback-only with no fixed published port; volume names retained
-PASS: 553 exact sudo rules per interface, on three interfaces; conventional visudo 1.9.16p2 accepts them
-PASS: Exact rules cover every permitted command emitted by both network APIs, including reset; subprocess calls mocked
-PASS: Actual launcher port-discovery/env-update block handles changing mappings and repeat runs; Docker calls mocked
-PASS: Launcher refuses to continue without a completed installation
-PASS: Existing application source patch block unchanged; no database deletion/prune commands added
+Passed on the Windows development host:
+- Python syntax compilation for the project services and database scripts.
+- Bash syntax checks for install_dsfst.sh and start_dsfst.sh.
+- Frontend TypeScript check and production build.
+- Fifteen mocked smoke tests for parameter validation, local Origin protection,
+  successful and failed stops, natural completion, network rule ownership,
+  measured throughput, generated credentials, and Compose YAML configuration.
+- The built frontend started and returned HTTP 200 on localhost:3000.
+- A WSL smoke test exercised Linux file locking with tc and sudo mocked.
 
-LIMITATIONS
------------
-The installed parser tested here is conventional visudo 1.9.16p2, not sudo-rs.
-The revised rules use exact command arguments, avoiding the rejected wildcard
-syntax. The installer validates them again using the VM's own visudo.
+Passed in a fresh Ubuntu 24.04 Oracle VirtualBox guest:
+- install_dsfst.sh installed the dependencies and pulled database images.
+- start_dsfst.sh started MongoDB, InfluxDB, Redis, all eleven APIs, the
+  dashboard, and the metrics writer.
+- The dashboard, API health endpoints, experiment list, latest metrics,
+  aggregate report, and orchestrator state returned HTTP 200.
+- Live CPU, memory, latency, and packet-loss injections started and stopped
+  through the orchestrator. Experiment details and reports returned HTTP 200.
+- A short CPU injection completed naturally and its database record became
+  completed without a manual stop after the metrics-writer reconciliation fix.
 
-Docker port-discovery calls were mocked. YAML parsing and configuration
-updates were tested, but Docker Engine/Compose were not available to run real
-containers. No package installation or full Ubuntu/VMware app run was done.
-No tc command or network experiment was executed by these tests.
+The tests in tests/ never inject faults into the host. The VirtualBox smoke
+run used a dedicated guest and low-intensity, short-lived injections.
+
+Windows VirtualBox clone launcher (2026-09-24):
+- create_dsfst_vms.bat completed a dry run and created two full clones from
+  the prepared LinuxVm1 snapshot, with independent disks, NAT adapters,
+  4 GB RAM, and one CPU each. A repeat run reused existing managed VMs.
+- DSFST-User-001 booted without a guest password prompt. The clone first-boot
+  service removed its copied database volumes, generated new credentials,
+  and started the app. The dashboard, /status, and /state returned HTTP 200.
+- LinuxVm1 restarted from the same setup. Its clone reset was skipped and
+  its existing data remained in place. Its dashboard and checked APIs
+  returned HTTP 200 after startup.
+- PowerShell parser and Bash syntax checks passed for the new scripts.

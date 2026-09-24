@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import StreamingResponse
 from influxdb_client import InfluxDBClient
 from pymongo import MongoClient, DESCENDING
@@ -63,11 +64,11 @@ app = FastAPI(title="D.S.F.S.T Metrics API", version="1.0.0")
  
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
  
 _mongo_client  = None
 _influx_client = None

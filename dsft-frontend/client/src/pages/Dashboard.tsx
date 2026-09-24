@@ -128,7 +128,7 @@ export default function Dashboard() {
             // only fill in what the direct endpoints couldnt give us
             if (cpuResult.status === "rejected" && metrics.cpu) {
               setCpuData({
-                container_id: "dsft-node-01",
+                container_id: "host",
                 cpu_usage_percent: metrics.cpu.cpu_usage_percent,
                 timestamp: metrics.cpu.timestamp,
               });
@@ -138,7 +138,7 @@ export default function Dashboard() {
 
             if (memResult.status === "rejected" && metrics.memory) {
               setMemData({
-                container_id: "dsft-node-01",
+                container_id: "host",
                 memory_used_mb: metrics.memory.memory_used_mb,
                 memory_percent: metrics.memory.memory_percent,
                 timestamp: metrics.memory.timestamp,
@@ -155,7 +155,7 @@ export default function Dashboard() {
                 latency_quality: metrics.network.latency_ms > 100 ? "Poor" : metrics.network.latency_ms > 50 ? "Moderate" : "Good",
                 jitter_ms: 0,
                 jitter_quality: "N/A",
-                container_id: "dsft-node-01",
+                container_id: "host",
                 latency_ms: metrics.network.latency_ms,
                 packet_loss_percent: metrics.network.packet_loss_percent,
                 throughput_kbps: metrics.network.throughput_kbps,
@@ -164,13 +164,16 @@ export default function Dashboard() {
             } else if (netResult.status === "fulfilled") {
               setNetData(netResult.value);
             }
+            if (cpuResult.status === "rejected" && !metrics.cpu) setCpuData(null);
+            if (memResult.status === "rejected" && !metrics.memory) setMemData(null);
+            if (netResult.status === "rejected" && !metrics.network) setNetData(null);
           } catch {
-            // MetricsAPI also failed - fall back to mock for the failed ones
-            if (cpuResult.status === "rejected") setCpuData(getMockCpuData());
+            // Keep missing live measurements visibly unavailable.
+            if (cpuResult.status === "rejected") setCpuData(null);
             else setCpuData(cpuResult.value);
-            if (memResult.status === "rejected") setMemData(getMockMemoryData());
+            if (memResult.status === "rejected") setMemData(null);
             else setMemData(memResult.value);
-            if (netResult.status === "rejected") setNetData(getMockNetworkData());
+            if (netResult.status === "rejected") setNetData(null);
             else setNetData(netResult.value);
           }
         } else {
@@ -181,18 +184,22 @@ export default function Dashboard() {
         }
 
         // health and status from the monitor (port 8000)
-        setHealthData(healthResult.status === "fulfilled" ? healthResult.value : getMockHealthData());
-        setStatusData(statusResult.status === "fulfilled" ? statusResult.value : getMockStatusData());
+        setHealthData(healthResult.status === "fulfilled" ? healthResult.value : null);
+        setStatusData(statusResult.status === "fulfilled" ? statusResult.value : null);
 
         // orchestrator state (port 8009) - its ok if this fails, just means orchestrator isnt up
         setOrchestratorState(orchResult.status === "fulfilled" ? orchResult.value : null);
 
         if (usedFallback) {
+          setError("Some live services are unavailable. Persisted measurements are shown where available.");
           addLog({
             timestamp: new Date().toISOString(),
             eventType: "metric_collected",
             message: "Some direct endpoints were down, used MetricsAPI as fallback",
           });
+        }
+        if (healthResult.status === "rejected" || statusResult.status === "rejected" || orchResult.status === "rejected") {
+          setError("Some live services are unavailable. Check the service status and experiment state.");
         }
       } else {
         // just generate some fake numbers
@@ -214,19 +221,18 @@ export default function Dashboard() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setError(`Could not reach backend: ${msg}`);
-      // if live mode fails, fall back to mock data so the dashboard still shows something
-      setCpuData(getMockCpuData());
-      setMemData(getMockMemoryData());
-      setNetData(getMockNetworkData());
-      setHealthData(getMockHealthData());
-      setStatusData(getMockStatusData());
+      setCpuData(null);
+      setMemData(null);
+      setNetData(null);
+      setHealthData(null);
+      setStatusData(null);
       setOrchestratorState(null);
       setLastUpdate(new Date().toISOString());
 
       addLog({
         timestamp: new Date().toISOString(),
         eventType: "error",
-        message: `Failed to fetch live data: ${msg}. Falling back to mock.`,
+        message: `Failed to fetch live data: ${msg}`,
       });
     }
   }, [isLiveMode, addLog]);
@@ -259,7 +265,7 @@ export default function Dashboard() {
             System Dashboard
           </h2>
           <p className="text-sm text-muted-foreground">
-            Real-time monitoring of container metrics
+            Real-time monitoring of this VM host
           </p>
         </div>
 
@@ -280,8 +286,8 @@ export default function Dashboard() {
             </Label>
           </div>
           {/* show the current mode */}
-          <Badge variant={isLiveMode ? "default" : "secondary"}>
-            {isLiveMode ? "LIVE" : "MOCK"}
+          <Badge variant={isLiveMode && error ? "destructive" : isLiveMode ? "default" : "secondary"}>
+            {isLiveMode && error ? "LIVE DEGRADED" : isLiveMode ? "LIVE" : "MOCK"}
           </Badge>
         </div>
       </div>
@@ -319,7 +325,7 @@ export default function Dashboard() {
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Container: {cpuData.container_id}</span>
+                  <span>Target: {cpuData.container_id}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {formatTime(cpuData.timestamp)}
@@ -327,7 +333,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading...</p>
+              <p className="text-sm text-muted-foreground">{error ? "Unavailable" : "Loading..."}</p>
             )}
           </CardContent>
         </Card>
@@ -358,7 +364,7 @@ export default function Dashboard() {
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Container: {memData.container_id}</span>
+                  <span>Target: {memData.container_id}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {formatTime(memData.timestamp)}
@@ -366,7 +372,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading...</p>
+              <p className="text-sm text-muted-foreground">{error ? "Unavailable" : "Loading..."}</p>
             )}
           </CardContent>
         </Card>
@@ -418,7 +424,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading...</p>
+              <p className="text-sm text-muted-foreground">{error ? "Unavailable" : "Loading..."}</p>
             )}
           </CardContent>
         </Card>
@@ -570,4 +576,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

@@ -29,7 +29,7 @@ import uuid
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Literal
  
 import redis
 import requests
@@ -37,7 +37,9 @@ from dotenv import load_dotenv
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
  
@@ -85,11 +87,21 @@ app = FastAPI(title="D.S.F.S.T Experiment Orchestrator", version="1.0.0")
  
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+
+
+@app.middleware("http")
+async def protect_local_api(request, call_next):
+    allowed = {"http://localhost:3000", "http://127.0.0.1:3000"}
+    origin = request.headers.get("origin")
+    host = request.url.hostname
+    if host not in ("localhost", "127.0.0.1") or (origin and origin not in allowed):
+        return JSONResponse({"detail": "Local dashboard access only"}, status_code=403)
+    return await call_next(request)
  
    # DB / cache connections (opened once)
     
@@ -103,6 +115,8 @@ def _get_redis() -> redis.Redis:
         host=REDIS_HOST,
         port=REDIS_PORT,
         db=REDIS_DB,
+        username=os.getenv("REDIS_USERNAME"),
+        password=os.getenv("REDIS_PASSWORD"),
         decode_responses=True,
         socket_connect_timeout=3,
     )
@@ -127,7 +141,7 @@ class StateMachine:
     TRANSITIONS = {
         "idle":     {"running"},
         "running":  {"stopping"},
-        "stopping": {"complete", "idle"},
+        "stopping": {"complete", "idle", "running"},
         "complete": {"idle", "running"},   # allow immediate re-run
     }
  
@@ -187,14 +201,39 @@ def _upsert_experiment(db, experiment_id: str, fields: dict):
     
 class CreateExperimentRequest(BaseModel):
     name:             Optional[str]  = None
-    failure_type:     str                          # cpu | latency | packet_loss | memory
-    target_container: Optional[str]  = "LinuxMachineHere"
-    parameters:       dict           = {}
+    failure_type:     Literal["cpu", "latency", "packet_loss", "memory"]
+    target_container: Literal["host"] = "host"
+    parameters:       dict = Field(default_factory=dict)
  
 class StartExperimentRequest(BaseModel):
     # optional override      if the experiment was created with parameters these are
     # already stored in MongoDB, but the caller can override them here
     parameters: Optional[dict] = None
+
+
+def _normalise_parameters(failure_type: str, parameters: dict) -> dict:
+    """Accept old UI keys, store one validated form, and reject unknown inputs."""
+    fields = {
+        "cpu": (("cpu_percent", "cpuPercent", 50, 1, 65),
+                ("duration_seconds", "duration", 30, 1, 300)),
+        "latency": (("latency_ms", "delayMs", 100, 0, 500),),
+        "packet_loss": (("packet_loss_percent", "lossPercent", 10, 0, 50),),
+        "memory": (("memory_mb", "memoryMb", 512, 64, 4096),
+                   ("duration_seconds", "duration", 30, 1, 300)),
+    }[failure_type]
+    allowed = {key for canonical, legacy, *_ in fields for key in (canonical, legacy)}
+    unknown = set(parameters) - allowed
+    if unknown:
+        raise ValueError(f"Unknown parameters: {', '.join(sorted(unknown))}")
+    result = {}
+    for canonical, legacy, default, low, high in fields:
+        if canonical in parameters and legacy in parameters and parameters[canonical] != parameters[legacy]:
+            raise ValueError(f"Conflicting values for {canonical}")
+        raw = parameters.get(canonical, parameters.get(legacy, default))
+        if isinstance(raw, bool) or not isinstance(raw, int) or not low <= raw <= high:
+            raise ValueError(f"{canonical} must be an integer from {low} to {high}")
+        result[canonical] = raw
+    return result
  
    # Injection call helpers
     
@@ -252,7 +291,11 @@ def _call_reset(failure_type: str) -> dict:
  
     try:
         resp = requests.post(url, timeout=10)
-        return resp.json()
+        resp.raise_for_status()
+        result = resp.json()
+        if result.get("error"):
+            raise ValueError(result["error"])
+        return result
     except Exception as e:
         return {"error": str(e)}
  
@@ -297,12 +340,17 @@ def create_experiment(body: CreateExperimentRequest):
  
     name = body.name or f"{body.failure_type}      {now.strftime('%Y-%m-%d %H:%M')}"
  
+    try:
+        parameters = _normalise_parameters(body.failure_type, body.parameters)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
     doc = {
         "experiment_id":    experiment_id,
         "name":             name,
         "failure_type":     body.failure_type,
         "target_container": body.target_container,
-        "parameters":       body.parameters,
+        "parameters":       parameters,
         "status":           "created",
         "created_at":       now,
         "started_at":       None,
@@ -313,7 +361,7 @@ def create_experiment(body: CreateExperimentRequest):
         db["experiments"].insert_one(doc)
         _log_event(db, experiment_id, "info",
                    f"Experiment created: {name}",
-                   {"failure_type": body.failure_type, "parameters": body.parameters})
+                   {"failure_type": body.failure_type, "parameters": parameters})
     except PyMongoError as e:
         raise HTTPException(status_code=500, detail=f"MongoDB error: {e}")
  
@@ -354,10 +402,8 @@ def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExp
         r  = _get_redis()
         sm = StateMachine(r)
         current_state = sm.get()
-    except redis.RedisError:
-        # Redis down      allow the start to proceed without state tracking
-        sm = None
-        current_state = "idle"
+    except redis.RedisError as e:
+        raise HTTPException(status_code=503, detail=f"Redis unavailable: {e}") from e
  
     if current_state == "running":
         active_id = sm.get_active_experiment() if sm else "unknown"
@@ -368,7 +414,13 @@ def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExp
         )
  
     # use caller-supplied parameters if provided, otherwise use what's stored
-    parameters = body.parameters if body.parameters else exp.get("parameters", {})
+    try:
+        parameters = _normalise_parameters(
+            exp.get("failure_type"),
+            body.parameters if body.parameters is not None else exp.get("parameters", {}),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
  
     #   call the injection script  
     failure_type = exp.get("failure_type")
@@ -467,6 +519,14 @@ def stop_experiment(experiment_id: str):
  
     #   call reset  
     reset_result = _call_reset(failure_type)
+    if reset_result.get("error"):
+        if sm:
+            try:
+                sm.transition("running", experiment_id=experiment_id)
+            except (ValueError, redis.RedisError):
+                pass
+        _log_event(db, experiment_id, "error", "Injection reset failed", reset_result)
+        raise HTTPException(status_code=502, detail=reset_result["error"])
  
     #   update MongoDB  
     try:
@@ -514,13 +574,38 @@ def emergency_stop():
     import concurrent.futures
  
     results = {}
+    stopped_experiment_id = None
+    active_type = None
+    sm = None
+    try:
+        sm = StateMachine(_get_redis())
+        stopped_experiment_id = sm.get_active_experiment()
+    except redis.RedisError as e:
+        print(f"[orchestrator] Redis unavailable during emergency stop: {e}")
+    if stopped_experiment_id is None:
+        try:
+            running_exp = db["experiments"].find_one({"status": "running"}, {"_id": 0})
+            stopped_experiment_id = running_exp.get("experiment_id") if running_exp else None
+            active_type = running_exp.get("failure_type") if running_exp else None
+        except PyMongoError:
+            pass
+    elif stopped_experiment_id:
+        try:
+            active_exp = db["experiments"].find_one({"experiment_id": stopped_experiment_id}, {"_id": 0})
+            active_type = active_exp.get("failure_type") if active_exp else None
+        except PyMongoError:
+            pass
  
     def _reset_one(label: str, url: str) -> tuple[str, dict]:
         try:
             r = requests.post(url, timeout=EMERGENCY_STOP_TIMEOUT - 2)
-            return label, r.json()
+            result = r.json()
+            if r.status_code == 409 and "does not own" in result.get("detail", ""):
+                return label, {"status": "not_owner"}
+            r.raise_for_status()
+            return label, result
         except requests.exceptions.ConnectionError:
-            return label, {"status": "service offline"}
+            return label, {"error": "service offline"}
         except Exception as e:
             return label, {"error": str(e)}
  
@@ -534,45 +619,39 @@ def emergency_stop():
         for f in done:
             label, result = f.result()
             results[label] = result
- 
-    #   mark any currently running experiment as stopped  
-    stopped_experiment_id = None
-    try:
-        r  = _get_redis()
-        sm = StateMachine(r)
-        stopped_experiment_id = sm.get_active_experiment()
-        sm.force_idle()
-    except redis.RedisError as e:
-        print(f"[orchestrator] Redis unavailable during emergency stop: {e}")
-        # fall back to scanning MongoDB for anything in 'running' state
-        try:
-            running_exp = db["experiments"].find_one({"status": "running"}, {"_id": 0})
-            if running_exp:
-                stopped_experiment_id = running_exp.get("experiment_id")
-        except PyMongoError:
-            pass
- 
-    if stopped_experiment_id:
+        for f in set(futures) - done:
+            results[RESET_ENDPOINTS[futures.index(f)][0]] = {"error": "reset timed out"}
+
+    failures = {label: result for label, result in results.items() if result.get("error")}
+    active_label = {
+        "cpu": "cpu reset", "latency": "network reset",
+        "packet_loss": "packet loss reset", "memory": "memory reset",
+    }.get(active_type)
+    active_reset_failed = active_label in failures if active_label else bool(failures)
+
+    if stopped_experiment_id and not active_reset_failed:
         try:
             _upsert_experiment(db, stopped_experiment_id, {
                 "status":   "stopped",
                 "ended_at": now,
             })
             _log_event(db, stopped_experiment_id, "injection_stopped",
-                       "Emergency stop triggered      all injections cancelled",
+                       "Emergency stop reset the active injection",
                        {"reset_results": results})
         except PyMongoError as e:
             print(f"[orchestrator] MongoDB update failed during emergency stop: {e}")
+    if sm and not active_reset_failed:
+        try:
+            sm.force_idle()
+        except redis.RedisError as e:
+            failures["redis"] = {"error": str(e)}
  
     return {
-        "status":                  "emergency_stop_complete",
+        "status":                  "partial_failure" if failures else "emergency_stop_complete",
         "stopped_experiment_id":   stopped_experiment_id,
         "timestamp":               now.isoformat(),
         "reset_results":           results,
-        "note": (
-            "All injection reset endpoints were called. "
-            "Check reset_results for individual outcomes."
-        ),
+        "note": "Some resets failed; inspect reset_results." if failures else "All injection reset endpoints succeeded.",
     }
  
  

@@ -88,37 +88,36 @@ token_file = Path('.dsfst/influx-token')
 if not token_file.exists():
     token_file.write_text(secrets.token_urlsafe(48), encoding='utf-8')
 token_file.chmod(0o600)
-env = f'''MONGO_URI=mongodb://test1234:test1234@127.0.0.1:27017/?authSource=admin
+legacy_install = Path('.dsfst/compose.yaml').exists() and not Path('.dsfst/mongo-password').exists()
+def password(name):
+    path = Path('.dsfst') / name
+    if not path.exists():
+        path.write_text('test1234' if legacy_install else secrets.token_urlsafe(24), encoding='utf-8')
+    path.chmod(0o600)
+    return path.read_text(encoding='utf-8').strip()
+
+mongo_password = password('mongo-password')
+redis_password = password('redis-password')
+influx_password = password('influx-password')
+if legacy_install:
+    print('Existing database volumes detected; legacy credentials retained. Migrate them before sharing this VM.')
+env = f'''MONGO_URI=mongodb://test1234:{mongo_password}@127.0.0.1:27017/?authSource=admin
+MONGO_PASSWORD={mongo_password}
 MONGO_DB_NAME=dsfst
 INFLUXDB_URL=http://127.0.0.1:8086
 INFLUXDB_TOKEN={token_file.read_text().strip()}
+INFLUX_PASSWORD={influx_password}
 INFLUXDB_ORG=dsfst-org
 INFLUXDB_BUCKET=dsfst-bucket
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_DB=0
 REDIS_USERNAME=test1234
-REDIS_PASSWORD=test1234
+REDIS_PASSWORD={redis_password}
 '''
 for name in ('.env', 'database/.env'):
     save(name, env)
     Path(name).chmod(0o600)
-
-# Both Redis connections (including the health check) must authenticate.
-name = 'experiment_orchestrator.py'
-text = Path(name).read_text(encoding='utf-8')
-if 'username=os.getenv("REDIS_USERNAME")' not in text:
-    text = text.replace('redis.Redis(', 'redis.Redis(username=os.getenv("REDIS_USERNAME"), password=os.getenv("REDIS_PASSWORD"), ')
-save(name, text)
-
-# Use the VM interface exported by the launcher and fix the undefined reset result.
-for name in ('InjectionScripts/NetworkLatencyInjection.py', 'InjectionScripts/PacketLossInjection.py'):
-    text = Path(name).read_text(encoding='utf-8')
-    if '\nimport os\n' not in '\n' + text:
-        text = 'import os\n' + text
-    text = text.replace('NETWORK_INTERFACE = "ens33"', 'NETWORK_INTERFACE = os.environ.get("DSFST_INTERFACE", "ens33")')
-    text = text.replace('    subprocess.run([\n', '    result = subprocess.run([\n')
-    save(name, text)
 
 # datetime.UTC is unavailable in Ubuntu 22.04's Python 3.10.
 name = 'database/sample_data.py'
@@ -135,10 +134,13 @@ save('.gitignore', text)
 PY
 
 # Redis uses a named account, not an unauthenticated default account.
-cat > .dsfst/redis.conf <<'CONF'
-user default off
-user test1234 on >test1234 ~* &* +@all
-CONF
+.venv/bin/python - <<'PY'
+from dotenv import dotenv_values
+from pathlib import Path
+password = dotenv_values('.env')['REDIS_PASSWORD']
+Path('.dsfst/redis.conf').write_text(
+    f'user default off\nuser test1234 on >{password} ~* &* +@all\n', encoding='utf-8')
+PY
 chmod 644 .dsfst/redis.conf
 
 # Dedicated volumes avoid changing credentials in existing database volumes.
@@ -150,10 +152,10 @@ services:
     ports: [{target: 27017, host_ip: "127.0.0.1"}]
     environment:
       MONGO_INITDB_ROOT_USERNAME: test1234
-      MONGO_INITDB_ROOT_PASSWORD: test1234
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Missing MongoDB password}
     volumes: ["mongodb_data:/data/db"]
     healthcheck:
-      test: ["CMD-SHELL", "test \"$$(cat /proc/1/comm)\" = mongod && mongosh --quiet --username test1234 --password test1234 --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'"]
+      test: ["CMD-SHELL", "test \"$$(cat /proc/1/comm)\" = mongod && mongosh --quiet --username test1234 --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'"]
       interval: 2s
       timeout: 5s
       retries: 60
@@ -164,7 +166,7 @@ services:
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: test1234
-      DOCKER_INFLUXDB_INIT_PASSWORD: test1234
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:?Missing InfluxDB password}
       DOCKER_INFLUXDB_INIT_ORG: dsfst-org
       DOCKER_INFLUXDB_INIT_BUCKET: dsfst-bucket
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?Missing InfluxDB token}
@@ -179,10 +181,12 @@ services:
   redis:
     image: redis:7.2.4-bookworm
     ports: [{target: 6379, host_ip: "127.0.0.1"}]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Missing Redis password}
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes: ["./.dsfst/redis.conf:/usr/local/etc/redis/redis.conf:ro"]
     healthcheck:
-      test: ["CMD-SHELL", "test \"$$(redis-cli --user test1234 -a test1234 --no-auth-warning ping)\" = PONG"]
+      test: ["CMD-SHELL", "test \"$$(redis-cli --user test1234 -a \"$$REDIS_PASSWORD\" --no-auth-warning ping)\" = PONG"]
       interval: 2s
       timeout: 5s
       retries: 60

@@ -82,7 +82,7 @@ def connect_mongo():
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
         client.admin.command("ping")  # confirm connection is alive
         db = client[MONGO_DB]
-        print(f"[MongoDB] Connected to {MONGO_URI} / {MONGO_DB}")
+        print(f"[MongoDB] Connected to database {MONGO_DB}")
         return db
     except PyMongoError as e:
         print(f"[MongoDB] Connection failed: {e}")
@@ -215,6 +215,26 @@ class StateTracker:
         """
         now = datetime.now(timezone.utc)
 
+        # A short timed injection can start and finish between two polls. Check
+        # the orchestrator whenever the monitor sees no active injection, even
+        # if this writer never observed a transition into "running".
+        if current_state in ("complete", "idle"):
+            try:
+                orch = fetch_json(f"{ORCHESTRATOR_URL}/state", timeout=3)
+                if orch is None:
+                    return
+                if orch and orch.get("state") == "running" and orch.get("active_experiment_id"):
+                    exp_id = orch["active_experiment_id"]
+                    response = requests.post(
+                        f"{ORCHESTRATOR_URL}/experiments/{exp_id}/stop", timeout=12)
+                    response.raise_for_status()
+                    print(f"[state] orchestrator completed experiment {exp_id}")
+            except Exception as exc:
+                # Preserve a running record and retry on the next poll if the
+                # reset failed or the orchestrator cannot be reached.
+                print(f"[state] orchestrator reconciliation failed: {exc}")
+                return
+
         # idle to running: a new experiment just started
         if self.last_state != "running" and current_state == "running":
             # Check if the orchestrator already created an experiment for this run
@@ -273,7 +293,7 @@ class StateTracker:
                 print(f"[state] running     experiment {exp_id} created ({failure_type})")
 
         # running to complete or idle experiment finished or (stress-ng timed out)
-        elif self.last_state == "running" and current_state in ("complete", "idle", "stopping"):
+        elif self.last_state in ("running", "stopping") and current_state in ("complete", "idle"):
             if self.active_experiment_id:
                 upsert_experiment(db, self.active_experiment_id, {
                     "status":   "completed",
@@ -283,16 +303,7 @@ class StateTracker:
                           f"Experiment ended, new state: {current_state}")
                 print(f"[state] stopped     experiment {self.active_experiment_id} marked complete")
 
-                # Tell the orchestrator to clean up Redis state so the dashboard
-                # shows "idle" instead of staying stuck on "running"
-                _exp_id = self.active_experiment_id
                 self.active_experiment_id = None
-                try:
-                    import requests as _req
-                    _req.post(f"{ORCHESTRATOR_URL}/emergency-stop", timeout=8)
-                    print(f"[state] orchestrator Redis cleared via emergency-stop")
-                except Exception:
-                    pass
             else:
                 self.active_experiment_id = None
 
@@ -326,23 +337,8 @@ def run():
         print("[ERROR] Cannot connect to MongoDB. Is docker-compose up and running?")
         sys.exit(1)
 
-    # Startup cleanup and mark any experiments that are stuck as "running" from a
-    # previous session as "stopped" nad If the service restarted, those injections
-    # are definitely no longer active.
-    try:
-        stale = list(db["experiments"].find({"status": "running"}, {"experiment_id": 1}))
-        if stale:
-            ids = [e["experiment_id"] for e in stale]
-            db["experiments"].update_many(
-                {"status": "running"},
-                {"$set": {"status": "stopped", "ended_at": datetime.now(timezone.utc)}}
-            )
-            print(f"[startup] Marked {len(ids)} stale 'running' experiment(s) as stopped: {ids}")
-    except Exception as e:
-        print(f"[startup] Stale cleanup failed (non-critical): {e}")
-
-    # Startup check if the orchestrator already has an active experiment in Redis
-    # so we don't create a duplicate when we detect the "running" state
+    # Keep an experiment that the orchestrator still reports as active.
+    existing_id = None
     try:
         orch_state = fetch_json(f"{ORCHESTRATOR_URL}/state", timeout=3)
         if orch_state and orch_state.get("state") == "running":
@@ -352,7 +348,23 @@ def run():
                 tracker.last_state = "running"
                 print(f"[startup] Adopted existing orchestrator experiment: {existing_id}")
     except Exception:
-        pass  # orchestrator might not be running yet
+        pass
+
+    # Mark only old running records as stopped after a restart.
+    try:
+        stale_query = {"status": "running"}
+        if existing_id:
+            stale_query["experiment_id"] = {"$ne": existing_id}
+        stale = list(db["experiments"].find(stale_query, {"experiment_id": 1}))
+        if stale:
+            ids = [e["experiment_id"] for e in stale]
+            db["experiments"].update_many(
+                stale_query,
+                {"$set": {"status": "stopped", "ended_at": datetime.now(timezone.utc)}}
+            )
+            print(f"[startup] Marked {len(ids)} stale 'running' experiment(s) as stopped: {ids}")
+    except Exception as e:
+        print(f"[startup] Stale cleanup failed (non-critical): {e}")
 
     cycle = 0
     while True:

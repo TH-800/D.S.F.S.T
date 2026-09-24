@@ -2,8 +2,9 @@
 #pip install fastapi uvicorn
 #python -m fastapi dev BaseNetworkInfo.py
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from enum import Enum
 from datetime import datetime
 
@@ -11,11 +12,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 
 @app.get("/")
 def read_root():
@@ -25,6 +26,9 @@ def read_root():
 import subprocess # system commands for linux
 import statistics # helps calculate jitter 
 import re # extracts numbers using regex
+import psutil
+import threading
+import time
 
 #enum classes for ranging whats good ms and filtering them for an if or else statement
 class LatencyQuality(str, Enum):
@@ -75,30 +79,26 @@ def get_jitter_quality(jitter: float) -> JitterQuality:
 
 # vibe code section start
 # as i had no on linux how to convert normal bytes to just kb
+_throughput_lock = threading.Lock()
+_throughput_sample = None
+_throughput_kbps = 0.0
+
+
 def get_network_throughput():
-    try:
-        result = subprocess.run(
-            [
-                "curl",
-                "-o", "/dev/null",
-                "-s",
-                "-w", "%{speed_download}",
-                "https://speed.hetzner.de/100MB.bin"
-            ],
-            capture_output=True,
-            text=True
-        )
-
-        # gets the output from the console and stores it 
-        speed_bytes_per_sec = float(result.stdout.strip())
-
-        # convert bytes/sec → kilobits/sec
-        throughput_kbps = (speed_bytes_per_sec * 8) / 1000
-
-        return round(throughput_kbps, 2)
-
-    except Exception:
-        return 0
+    """Observed host traffic in kb/s; never generate traffic to measure traffic."""
+    global _throughput_sample, _throughput_kbps
+    with _throughput_lock:
+        now = time.monotonic()
+        counters = psutil.net_io_counters()
+        total_bytes = counters.bytes_sent + counters.bytes_recv
+        if _throughput_sample is not None:
+            previous_time, previous_bytes = _throughput_sample
+            elapsed = now - previous_time
+            if elapsed < 1:
+                return _throughput_kbps
+            _throughput_kbps = round(max(0, total_bytes - previous_bytes) * 8 / elapsed / 1000, 2)
+        _throughput_sample = (now, total_bytes)
+        return _throughput_kbps
 # vibe code section end 
 
 
@@ -122,9 +122,10 @@ def get_network_status(host="8.8.8.8", count=5):
     # subprcess is used to run the command on linux and send it back as 
     # a readable string 
     result = subprocess.run(
-        ["ping", "-c", str(count), host],
+        ["ping", "-c", str(count), "-W", "1", host],
         capture_output=True,
-        text=True
+        text=True,
+        timeout=count * 2 + 2,
     )
 
     #gets the output from linux console  via standard output
@@ -181,7 +182,7 @@ def get_network_status(host="8.8.8.8", count=5):
 
         # new metrics for project database schema for when the data base is
         # setup later 
-        "container_id": "LinuxMachineHere",
+        "container_id": "host",
         "latency_ms": round(avg_latency, 2),
         "packet_loss_percent": packet_loss_percent,
         "throughput_kbps": throughput_kbps,
@@ -191,5 +192,10 @@ def get_network_status(host="8.8.8.8", count=5):
 
 @app.get("/network")
 def network_info():
-    return get_network_status()
-
+    try:
+        result = get_network_status()
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(status_code=503, detail=f"Network measurement unavailable: {exc}") from exc
+    if "error" in result:
+        raise HTTPException(status_code=503, detail=result["error"])
+    return result

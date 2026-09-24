@@ -32,18 +32,27 @@ for port in [3000, *range(8000, 8011)]:
         sock.bind(('127.0.0.1', port))
 PY
 
-sudo -v
-sudo systemctl start docker
-sudo modprobe sch_netem
-compose=(sudo docker compose --project-name dsfst-vm --project-directory "$ROOT"
-    --env-file "$ROOT/.env" -f "$ROOT/.dsfst/compose.yaml")
+if [[ "${DSFST_UNATTENDED:-0}" == 1 ]]; then
+    # The systemd unit starts Docker, loads sch_netem, and grants this process
+    # access to the Docker socket. No guest password is needed at boot.
+    docker info >/dev/null
+    compose=(docker compose --project-name dsfst-vm --project-directory "$ROOT"
+        --env-file "$ROOT/.env" -f "$ROOT/.dsfst/compose.yaml")
+else
+    sudo -v
+    sudo systemctl start docker
+    sudo modprobe sch_netem
+    compose=(sudo docker compose --project-name dsfst-vm --project-directory "$ROOT"
+        --env-file "$ROOT/.env" -f "$ROOT/.dsfst/compose.yaml")
+fi
 "${compose[@]}" up -d --wait --wait-timeout 180 --pull never
 
 # Use Docker's actual port assignments, leaving other database services alone.
 MONGO_ADDRESS="$("${compose[@]}" port mongodb 27017)"
 INFLUX_ADDRESS="$("${compose[@]}" port influxdb 8086)"
 REDIS_ADDRESS="$("${compose[@]}" port redis 6379)"
-export MONGO_URI="mongodb://test1234:test1234@${MONGO_ADDRESS}/?authSource=admin"
+MONGO_PASSWORD="$(python -c 'from dotenv import dotenv_values; print(dotenv_values(".env")["MONGO_PASSWORD"])')"
+export MONGO_URI="mongodb://test1234:${MONGO_PASSWORD}@${MONGO_ADDRESS}/?authSource=admin"
 export INFLUXDB_URL="http://${INFLUX_ADDRESS}"
 export REDIS_PORT="${REDIS_ADDRESS##*:}"
 python - <<'PY'

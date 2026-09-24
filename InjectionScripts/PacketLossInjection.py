@@ -1,83 +1,53 @@
-# Network Packet Loss Injection API
+from datetime import datetime, timezone
 
-# Commands for FastAPI setup
-# pip install fastapi uvicorn psutil
-# pip install "fastapi[standard]"
-# python -m fastapi dev PacketLossInjection.py
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import subprocess  # for running external shell commands
-from datetime import datetime
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
+
+from network_rules import NetworkRuleError, apply_rule, network_interface, reset_rule
+
 
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 
-NETWORK_INTERFACE = "ens33"  # First ethernet interface; change if different
-CONTAINER_ID = "LinuxMachineHere"
+
+@app.middleware("http")
+async def protect_local_api(request, call_next):
+    allowed = {"http://localhost:3000", "http://127.0.0.1:3000"}
+    origin = request.headers.get("origin")
+    host = request.url.hostname
+    if host not in ("localhost", "127.0.0.1") or (origin and origin not in allowed):
+        return JSONResponse({"detail": "Local dashboard access only"}, status_code=403)
+    return await call_next(request)
+
 
 @app.get("/")
 def read_root():
-    return {"message": "Packet Loss Injection API", "interface": NETWORK_INTERFACE}
+    return {"message": "Packet Loss Injection API", "interface": network_interface()}
 
-def inject_packet_loss(loss_percent: int):
-    """
-    Inject packet loss using tc/netem.
-    loss_percent: 0-50%
-    """
-
-    if loss_percent < 0 or loss_percent > 50:
-        return {"error": "Packet loss must be between 0 and 50 percent"}
-
-    # commands stored in a list so they can be executed in the shell
-    command = [
-        "sudo",
-        "tc",           # traffic control
-        "qdisc",        # queueing discipline
-        "replace",      # replace rule
-        "dev",
-        NETWORK_INTERFACE,
-        "root",
-        "netem",        # emulate network conditions
-        "loss",
-        f"{loss_percent}%"
-    ]
-
-    subprocess.run(command, check=True)  # inject packet loss
-
-    return {
-        "container_id": CONTAINER_ID,
-        "packet_loss_percent": loss_percent,
-        "interface": NETWORK_INTERFACE,
-        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    }
 
 @app.post("/inject/packetloss/{loss_percent}")
-def api_packet_loss(loss_percent: int):
-    return inject_packet_loss(loss_percent)
+def inject_packet_loss(loss_percent: int):
+    if not 0 <= loss_percent <= 50:
+        raise HTTPException(status_code=422, detail="Packet loss must be between 0 and 50 percent")
+    try:
+        result = apply_rule("packet_loss", loss_percent)
+    except NetworkRuleError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"container_id": "host", "packet_loss_percent": loss_percent,
+            "interface": result["interface"], "timestamp": datetime.now(timezone.utc).isoformat()}
+
 
 @app.post("/reset/network")
 def reset_network():
-    """
-    Reset network to normal by removing tc/netem rules.
-    """
-    subprocess.run([
-        "sudo",
-        "tc",
-        "qdisc",
-        "del",
-        "dev",
-        NETWORK_INTERFACE,
-        "root"
-    ], capture_output=True)  # exit code 2 = no rule exists, that is fine
-    if result.returncode not in (0, 2):
-        return {"error": f"tc del failed: exit {result.returncode}"}
-
-    return {"message": "Network conditions reset"}
+    try:
+        return reset_rule("packet_loss")
+    except NetworkRuleError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

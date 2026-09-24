@@ -16,7 +16,7 @@
 
 // base host for all the FastAPI scripts - they all run on the same machine just different ports
 // change this if the backend is on a different machine (e.g. a VM or remote server)
-const BACKEND_HOST = "http://localhost";
+const BACKEND_HOST = "http://127.0.0.1";
 
 // port assignments for each backend script
 // these match the --port flags used when starting each script with fastapi dev
@@ -38,6 +38,13 @@ const PORTS = {
 // e.g. getUrl("cpu") returns "http://localhost:8002"
 function getUrl(service: keyof typeof PORTS): string {
   return `${BACKEND_HOST}:${PORTS[service]}`;
+}
+
+async function requireOk(res: Response, context: string): Promise<void> {
+  if (res.ok) return;
+  const body = await res.json().catch(() => null);
+  const detail = typeof body?.detail === "string" ? body.detail : `HTTP ${res.status}`;
+  throw new Error(`${context}: ${detail}`);
 }
 
 // --- types for the data we get back from the API ---
@@ -355,9 +362,9 @@ export interface ExperimentReport {
   parameters: Record<string, any>;
   startedAt: string;
   completedAt: string;
-  baseline: { cpuPercent: number; memoryPercent: number; latencyMs: number };
-  peak: { cpuPercent: number; memoryPercent: number; latencyMs: number };
-  avgDuringTest: { cpuPercent: number; memoryPercent: number; latencyMs: number };
+  baseline: { cpuPercent: number | null; memoryPercent: number | null; latencyMs: number | null } | null;
+  peak: { cpuPercent: number | null; memoryPercent: number | null; latencyMs: number | null } | null;
+  avgDuringTest: { cpuPercent: number | null; memoryPercent: number | null; latencyMs: number | null } | null;
 }
 
 // summary info for a completed experiment (lighter than the full report)
@@ -525,7 +532,7 @@ export async function createExperiment(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error("Failed to create experiment via orchestrator");
+  await requireOk(res, "Could not create experiment");
   return res.json();
 }
 
@@ -540,7 +547,7 @@ export async function startExperiment(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params ? { parameters: params } : {}),
   });
-  if (!res.ok) throw new Error("Failed to start experiment via orchestrator");
+  await requireOk(res, "Could not start experiment");
   return res.json();
 }
 
@@ -549,7 +556,7 @@ export async function stopExperiment(id: string): Promise<StopExperimentResponse
   const res = await fetch(`${getUrl("orchestrator")}/experiments/${id}/stop`, {
     method: "POST",
   });
-  if (!res.ok) throw new Error("Failed to stop experiment via orchestrator");
+  await requireOk(res, "Could not stop experiment");
   return res.json();
 }
 
@@ -559,7 +566,7 @@ export async function emergencyStop(): Promise<EmergencyStopResponse> {
   const res = await fetch(`${getUrl("orchestrator")}/emergency-stop`, {
     method: "POST",
   });
-  if (!res.ok) throw new Error("Failed to execute emergency stop");
+  await requireOk(res, "Could not complete emergency stop");
   return res.json();
 }
 
@@ -596,4 +603,3 @@ export async function fetchReportsTimeline(limit?: number): Promise<TimelineEntr
   if (!res.ok) throw new Error("Failed to fetch reports timeline");
   return res.json();
 }
-

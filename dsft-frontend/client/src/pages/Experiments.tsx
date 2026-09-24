@@ -18,13 +18,6 @@ import {
 import { Play, Square, Cpu, Wifi, AlertTriangle, MemoryStick, OctagonX } from "lucide-react";
 import { useAppState, type Experiment } from "@/lib/store";
 import {
-  injectCpuStress,
-  injectLatency,
-  injectPacketLoss,
-  injectMemoryStress,
-  resetCpu,
-  resetNetwork,
-  resetMemory,
   fetchDbExperiments,
   fetchOrchestratorState,
   createExperiment,
@@ -142,16 +135,16 @@ export default function Experiments() {
 
     if (injectionType === "cpu") {
       name = `CPU Stress - ${cpuPercent}%`;
-      params = { cpuPercent, duration: cpuDuration };
+      params = { cpu_percent: cpuPercent, duration_seconds: cpuDuration };
     } else if (injectionType === "latency") {
       name = `Latency Injection - ${latencyDelay}ms`;
-      params = { delayMs: latencyDelay };
+      params = { latency_ms: latencyDelay };
     } else if (injectionType === "packet_loss") {
       name = `Packet Loss - ${packetLossPercent}%`;
-      params = { lossPercent: packetLossPercent };
+      params = { packet_loss_percent: packetLossPercent };
     } else if (injectionType === "memory") {
       name = `Memory Stress - ${memoryMb}MB`;
-      params = { memoryMb, duration: memoryDuration };
+      params = { memory_mb: memoryMb, duration_seconds: memoryDuration };
     }
 
     const exp: Experiment = {
@@ -163,76 +156,33 @@ export default function Experiments() {
       startedAt: now,
     };
 
-    // if we're in live mode, actually call the backend
-    // first try the orchestrator (port 8009) which handles the full lifecycle
-    // if that fails, fall back to calling the injection scripts directly
+    // Live experiments only exist after the orchestrator confirms the injection.
     if (isLiveMode) {
-      let orchestratorWorked = false;
       try {
-        // try orchestrator first - it creates the experiment in the database and
-        // coordinates the injection through the proper state machine
         const created = await createExperiment({
           name,
           failure_type: injectionType,
+          target_container: "host",
           parameters: params,
         });
-        const started = await startExperiment(created.experiment_id, params);
-        // use the orchestrator's experiment id so we can track it later
+        await startExperiment(created.experiment_id);
         exp.id = created.experiment_id;
-        orchestratorWorked = true;
-
         addLog({
           timestamp: now,
           eventType: "injection_started",
           message: `Orchestrator started experiment: ${name} (id: ${created.experiment_id})`,
         });
-
-        // refresh to pick up the new orchestrator state
         refreshFromBackend();
-      } catch (orchErr) {
-        // orchestrator is unreachable - fall back to direct injection
-        const orchMsg = orchErr instanceof Error ? orchErr.message : "Unknown error";
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
         addLog({
           timestamp: now,
           eventType: "error",
-          message: `Orchestrator unreachable (${orchMsg}), falling back to direct injection`,
+          message: `Experiment failed to start: ${message}`,
         });
-
-        try {
-          let result: any;
-          if (injectionType === "cpu") {
-            result = await injectCpuStress(cpuPercent, cpuDuration);
-          } else if (injectionType === "latency") {
-            result = await injectLatency(latencyDelay);
-          } else if (injectionType === "packet_loss") {
-            result = await injectPacketLoss(packetLossPercent);
-          } else if (injectionType === "memory") {
-            result = await injectMemoryStress(memoryMb, memoryDuration);
-          }
-          // check if backend returned an error (e.g. "CPU stress already running")
-          // the backend returns { error: "..." } with a 200 status, not a thrown error
-          if (result && result.error) {
-            toast({
-              title: "Cannot start experiment",
-              description: result.error,
-              variant: "destructive",
-            });
-            setIsStarting(false);
-            return;
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          toast({
-            title: "Injection failed",
-            description: `Backend error: ${msg}. Experiment logged locally.`,
-            variant: "destructive",
-          });
-          addLog({
-            timestamp: now,
-            eventType: "error",
-            message: `Failed to inject on backend: ${msg}`,
-          });
-        }
+        toast({ title: "Experiment failed to start", description: message, variant: "destructive" });
+        setIsStarting(false);
+        return;
       }
     }
 
@@ -247,7 +197,7 @@ export default function Experiments() {
     // if the experiment has a duration, set a timer to auto-complete it
     // this way the frontend knows when stress-ng finishes on the backend
     // without the user having to manually click stop
-    const duration = params.duration;
+    const duration = isLiveMode ? undefined : params.duration_seconds;
     if (duration && duration > 0) {
       const timerId = setTimeout(() => {
         const completedAt = new Date().toISOString();
@@ -273,35 +223,15 @@ export default function Experiments() {
   async function handleStop(exp: Experiment) {
     const now = new Date().toISOString();
 
-    // if live mode, try orchestrator stop first, then fall back to direct resets
+    // A live stop is only successful after the orchestrator confirms its reset.
     if (isLiveMode) {
-      let orchestratorWorked = false;
       try {
         await stopExperiment(exp.id);
-        orchestratorWorked = true;
         refreshFromBackend();
-      } catch {
-        // orchestrator didnt work, fall back to the direct reset endpoints
-      }
-
-      if (!orchestratorWorked) {
-        try {
-          if (exp.type === "cpu") {
-            await resetCpu();
-          } else if (exp.type === "memory") {
-            await resetMemory();
-          } else {
-            // both latency and packet loss use the network reset
-            await resetNetwork();
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          toast({
-            title: "Reset failed",
-            description: `Backend error: ${msg}`,
-            variant: "destructive",
-          });
-        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        toast({ title: "Reset failed", description: msg, variant: "destructive" });
+        return;
       }
     }
 
@@ -330,6 +260,9 @@ export default function Experiments() {
     const now = new Date().toISOString();
     try {
       const result = await emergencyStop();
+      if (result.status !== "emergency_stop_complete") {
+        throw new Error(result.note || "Some injections could not be reset");
+      }
       toast({
         title: "Emergency stop executed",
         description: result.note || "All injections have been stopped",
@@ -358,6 +291,7 @@ export default function Experiments() {
         description: `Could not reach orchestrator: ${msg}`,
         variant: "destructive",
       });
+      refreshFromBackend();
     }
     setIsStopping(false);
   }
@@ -399,7 +333,7 @@ export default function Experiments() {
           Failure Injection
         </h2>
         <p className="text-sm text-muted-foreground">
-          Configure and run chaos experiments on the distributed system
+          Configure and run failure experiments on this VM host
         </p>
       </div>
 

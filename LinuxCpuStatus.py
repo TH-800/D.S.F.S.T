@@ -4,6 +4,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from datetime import datetime
 import psutil # import for reading processes,cpu,memory and system data and etc
 
@@ -11,11 +12,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
 
 @app.get("/")
 def read_root():
@@ -24,7 +25,7 @@ def read_root():
 # cpu monitoring section for linux systems no windows this time 
 # uses psutil to check cpu usage
 
-def get_cpu_status(container_id="LinuxMachineHere"): # update here when docker is setup
+def get_cpu_status(container_id="host"):
     # so when docker is setup it can dynamically change via the GUI for what machine 
     # the script is gonna run on 
 
@@ -45,4 +46,3 @@ def get_cpu_status(container_id="LinuxMachineHere"): # update here when docker i
 @app.get("/cpu")
 def cpu_info():
     return get_cpu_status()
-
