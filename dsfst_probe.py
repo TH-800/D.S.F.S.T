@@ -2,6 +2,7 @@
 """Inspect local D.S.F.S.T databases and call its loopback APIs."""
 
 import argparse
+import itertools
 import json
 import sys
 from datetime import date, datetime
@@ -148,6 +149,79 @@ def redis_info(settings):
         }
 
 
+def mongo_rows(settings, collection, limit):
+    from pymongo import MongoClient
+
+    uri = settings.get("MONGO_URI")
+    if not uri:
+        raise ValueError("MONGO_URI is missing from .env")
+    with MongoClient(uri, serverSelectionTimeoutMS=5000) as client:
+        client.admin.command("ping")
+        database = client[settings.get("MONGO_DB_NAME") or "dsfst"]
+        if collection not in database.list_collection_names():
+            raise ValueError(f"MongoDB collection {collection!r} does not exist")
+        documents = list(database[collection].find({}).sort("_id", -1).limit(limit))
+        return {"ok": True, "database": database.name, "collection": collection, "documents": documents}
+
+
+def influx_rows(settings, minutes, limit):
+    from influxdb_client import InfluxDBClient
+
+    url = settings.get("INFLUXDB_URL")
+    token = settings.get("INFLUXDB_TOKEN")
+    org = settings.get("INFLUXDB_ORG") or "dsfst-org"
+    bucket = settings.get("INFLUXDB_BUCKET") or "dsfst-bucket"
+    if not url or not token:
+        raise ValueError("INFLUXDB_URL or INFLUXDB_TOKEN is missing from .env")
+    flux = (f"from(bucket: {json.dumps(bucket)}) |> range(start: -{minutes}m) "
+            f"|> group() |> sort(columns: [\"_time\"], desc: true) |> limit(n: {limit})")
+    with InfluxDBClient(url=url, token=token, org=org, timeout=10000) as client:
+        rows = []
+        for table in client.query_api().query(flux, org=org):
+            for record in table.records:
+                rows.append({
+                    "time": record.get_time(),
+                    "measurement": record.get_measurement(),
+                    "field": record.get_field(),
+                    "value": record.get_value(),
+                    "container_id": record.values.get("container_id"),
+                })
+        return {"ok": True, "bucket": bucket, "window_minutes": minutes, "points": rows}
+
+
+def redis_rows(settings, limit):
+    import redis
+
+    with redis.Redis(
+        host=settings.get("REDIS_HOST") or "127.0.0.1",
+        port=int(settings.get("REDIS_PORT") or 6379),
+        db=int(settings.get("REDIS_DB") or 0),
+        username=settings.get("REDIS_USERNAME"),
+        password=settings.get("REDIS_PASSWORD"),
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+    ) as client:
+        client.ping()
+        keys = []
+        for key in itertools.islice(client.scan_iter(match="dsft:*"), limit):
+            kind = client.type(key)
+            keys.append({
+                "key": key,
+                "type": kind,
+                "value": client.get(key) if kind == "string" else None,
+                "ttl_seconds": client.ttl(key),
+            })
+        return {"ok": True, "keys": keys}
+
+
+def database_call(settings, action):
+    try:
+        return action()
+    except Exception as error:
+        return {"ok": False, "error": safe_error(error, settings)}
+
+
 def database_report(limit, minutes):
     settings = load_settings()
     report = {}
@@ -156,10 +230,7 @@ def database_report(limit, minutes):
         ("influxdb", lambda: influx_info(settings, minutes)),
         ("redis", lambda: redis_info(settings)),
     ):
-        try:
-            report[name] = action()
-        except Exception as error:
-            report[name] = {"ok": False, "error": safe_error(error, settings)}
+        report[name] = database_call(settings, action)
     return report
 
 
@@ -170,6 +241,14 @@ def parser():
     db = commands.add_parser("db", help="Read MongoDB, InfluxDB, and Redis summaries from local .env")
     db.add_argument("--limit", type=int, default=5, help="Recent MongoDB experiment count, 0-20")
     db.add_argument("--minutes", type=int, default=15, help="InfluxDB lookback window, 1-1440 minutes")
+    mongo = commands.add_parser("mongo", help="Read recent documents from a MongoDB collection")
+    mongo.add_argument("collection", help="Collection name, such as experiments or logs")
+    mongo.add_argument("--limit", type=int, default=10, help="Maximum documents, 1-50")
+    influx = commands.add_parser("influx", help="Read recent InfluxDB points")
+    influx.add_argument("--limit", type=int, default=10, help="Maximum points, 1-50")
+    influx.add_argument("--minutes", type=int, default=15, help="Lookback window, 1-1440 minutes")
+    redis_command = commands.add_parser("redis", help="Read D.S.F.S.T Redis keys")
+    redis_command.add_argument("--limit", type=int, default=20, help="Maximum keys, 1-50")
     api = commands.add_parser("api", help="Send an explicit GET or POST to a local D.S.F.S.T API")
     api.add_argument("method", choices=("GET", "POST"))
     api.add_argument("port", type=int, choices=API_PORTS)
@@ -193,6 +272,18 @@ def main(argv=None):
             if not 0 <= args.limit <= 20 or not 1 <= args.minutes <= 1440:
                 raise ValueError("--limit must be 0-20 and --minutes must be 1-1440")
             report = database_report(args.limit, args.minutes)
+        elif args.command in ("mongo", "influx", "redis"):
+            if not 1 <= args.limit <= 50:
+                raise ValueError("--limit must be 1-50")
+            if args.command == "influx" and not 1 <= args.minutes <= 1440:
+                raise ValueError("--minutes must be 1-1440")
+            settings = load_settings()
+            if args.command == "mongo":
+                report = database_call(settings, lambda: mongo_rows(settings, args.collection, args.limit))
+            elif args.command == "influx":
+                report = database_call(settings, lambda: influx_rows(settings, args.minutes, args.limit))
+            else:
+                report = database_call(settings, lambda: redis_rows(settings, args.limit))
         else:
             if args.method == "GET" and (args.data is not None or args.json_file is not None):
                 raise ValueError("GET cannot have a JSON request body")
@@ -203,7 +294,7 @@ def main(argv=None):
         print(f"Error: {error}", file=sys.stderr)
         return 2
     print_json(report)
-    results = report.values() if args.command != "api" else (report,)
+    results = report.values() if args.command in ("status", "db") else (report,)
     return 0 if all(item.get("ok") for item in results) else 1
 
 

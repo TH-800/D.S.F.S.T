@@ -10,6 +10,9 @@ not reach them unless you have separately configured port forwarding.
 .venv/bin/python dsfst_probe.py status
 .venv/bin/python dsfst_probe.py db
 .venv/bin/python dsfst_probe.py db --limit 10 --minutes 60
+.venv/bin/python dsfst_probe.py mongo experiments --limit 10
+.venv/bin/python dsfst_probe.py influx --minutes 60 --limit 20
+.venv/bin/python dsfst_probe.py redis
 .venv/bin/python dsfst_probe.py api GET 8009 /state
 .venv/bin/python dsfst_probe.py api GET 8008 '/experiments?limit=5'
 ```
@@ -20,6 +23,11 @@ MongoDB collection counts and recent experiment summaries, recent InfluxDB
 metric fields, and Redis experiment state. It never prints database passwords
 or the InfluxDB token. Each result has `ok`; the command exits nonzero if any
 service fails.
+`mongo`, `influx`, and `redis` return bounded records from their respective
+stores.
+
+To run these commands from Windows against an active VirtualBox guest, use
+`dsfst_vm_access.bat` as described in `VM_ACCESS_README.md`.
 
 The `api` command accepts GET or POST on ports 8000–8010, always on
 `127.0.0.1`. POST can create or start experiments, so choose its path and body

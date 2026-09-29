@@ -47,3 +47,15 @@ Database/API probe smoke (2026-09-24 UTC):
 - A POST with an empty JSON body reached /experiments and returned HTTP 422 as
   expected. It created no experiment and started no injection.
 - DSFST-User-001 was shut down cleanly after the check.
+
+Windows-to-VM access smoke (2026-09-29):
+- PowerShell parser and Windows wrapper simulation passed for an API POST with
+  a copied JSON request file and guest-side cleanup.
+- From Windows, dsfst_vm_access.bat reached LinuxVm1's orchestrator /state
+  endpoint and received HTTP 200.
+- The Windows launcher read MongoDB collection counts and experiment documents,
+  recent InfluxDB points, and Redis state from the running VM.
+- A deliberately incomplete POST to /experiments returned HTTP 422 without
+  creating an experiment. The Windows script reports that failed request with
+  exit code 1.
+- All 17 Python smoke tests passed. No VM port forwarding was added.

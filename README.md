@@ -45,6 +45,8 @@ Run `.venv/bin/python dsfst_probe.py status` or
 `.venv/bin/python dsfst_probe.py db` inside the Ubuntu VM. To send an explicit
 API request, use `.venv/bin/python dsfst_probe.py api GET 8009 /state`.
 See `DB_API_README.md` for database output, POST examples, and limits.
+From Windows, `dsfst_vm_access.bat` runs those requests inside an active
+VirtualBox guest and returns the JSON to Windows. See `VM_ACCESS_README.md`.
 
 ## Checks
 
