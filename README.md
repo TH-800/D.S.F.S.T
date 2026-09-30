@@ -5,6 +5,17 @@ reads host CPU, memory, and network measurements and manages CPU, memory,
 latency, and packet loss experiments. The current target is the VM host; the
 project does not yet inject faults into individual containers or remote nodes.
 
+## Set up your own VM
+
+Follow **[Run on your own Ubuntu VM](OWN_VM_SETUP.md)** for the complete
+Windows + Oracle VirtualBox setup: download this branch, install in Ubuntu,
+enable automatic startup, open the dashboard and APIs from Windows, verify
+live data, stop the service, and optionally clone the VM.
+
+The tested guest is Ubuntu 24.04 LTS x86-64. The Windows batch and PowerShell
+scripts are in this repository's root folder and use your local VirtualBox
+installation. Supply your own VM name and Ubuntu username when running them.
+
 ## Components
 
 - `RunALL.py` starts the frontend on port 3000 and eleven FastAPI services on
@@ -25,10 +36,11 @@ From this directory, run `bash install_dsfst.sh` once, then
 The installer creates a virtual environment, downloads dependencies and
 database images, and generates local credentials. The launcher starts the
 databases, APIs, frontend, and metrics writer. Press Ctrl+C in its terminal to
-stop the app. See `START_HERE.txt` for setup details.
+stop the app. See [START_HERE.txt](START_HERE.txt) for setup details.
 
-The app binds its APIs and frontend to the VM loopback interface. Use it only
-on a private test VM; it has no user login or remote node agent.
+The APIs and databases bind to VM loopback. Optional Windows browser access
+adds a web listener on the VM's host-only IP. Use it on a private test VM;
+it has no user login or remote node agent.
 
 ## Prepared VirtualBox VMs on Windows
 
@@ -39,6 +51,11 @@ prepare a template from your own Ubuntu VM. For a template configured with
 app service. The first template setup requires sudo; later clones boot without
 an Ubuntu password prompt.
 
+For direct Windows browser access, run `enable_vm_browser.bat` once. Each VM
+gets a permanent IP; the dashboard and APIs share `http://<VM-IP>:3000`.
+See [VM_BROWSER_README.md](VM_BROWSER_README.md) for setup, cloning, API URLs
+and external collectors.
+
 ## Inspect data and call APIs
 
 Run `.venv/bin/python dsfst_probe.py status` or
@@ -47,6 +64,8 @@ API request, use `.venv/bin/python dsfst_probe.py api GET 8009 /state`.
 See `DB_API_README.md` for database output, POST examples, and limits.
 From Windows, `dsfst_vm_access.bat` runs those requests inside an active
 VirtualBox guest and returns the JSON to Windows. See `VM_ACCESS_README.md`.
+With browser access enabled, Windows can also call
+`http://<VM-IP>:3000/api/8008/metrics/latest` directly over HTTP.
 
 ## Checks
 
@@ -58,3 +77,8 @@ syntax. From `dsft-frontend/`, run `npm ci`, `npm run check`, and
 environment, then run `python -m unittest discover -s tests -v`. The tests
 mock system commands and database services; they do not inject failures.
 On Linux, `python3 tests/linux_network_lock_smoke.py` also checks the file lock.
+For the browser gateway, run `node --import tsx --test server/api-proxy.test.ts`
+from `dsft-frontend/`, and `powershell -File tests/test_vm_network.ps1` from
+the project root. `tests/live_vm_browser_smoke.ps1 -BaseUrl http://<VM-IP>:3000`
+checks the running VM over HTTP; add `-RunExperiment` to test a bounded CPU
+experiment and read its stored results.

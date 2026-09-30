@@ -4,12 +4,13 @@
 #   bash install_dsfst.sh
 #   bash enable_dsfst_autostart.sh
 # Test with: sudo systemctl start dsfst.service
-# Shut down the VM. In Windows Command Prompt, mark it and take a snapshot:
-#   "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" setextradata "My Ubuntu VM" dsfst/template-ready 1
-#   "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" snapshot "My Ubuntu VM" take dsfst-ready
+# In Windows, run the one-time network setup and prepare a fresh snapshot:
+#   enable_vm_browser.bat -VmName "My Ubuntu VM" -GuestUser myuser -PrepareTemplate
+# Each clone gets its own permanent 192.168.56.x browser/API address.
 # Then run: create_dsfst_vms.bat 2 -TemplateVm "My Ubuntu VM"
 # The Ubuntu password is needed for one-time setup, not for cloning or boot.
-# See VM_FACTORY_README.txt for prerequisites and further details.
+# See OWN_VM_SETUP.md for a fresh install on your own PC and Ubuntu VM.
+# See VM_FACTORY_README.txt for cloning prerequisites and further details.
 param(
     [Parameter(Position = 0)]
     [ValidateRange(1, 16)]
@@ -19,7 +20,7 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$TemplateVm = 'LinuxVm1',
     [ValidateNotNullOrEmpty()]
-    [string]$SnapshotName = 'dsfst-ready'
+    [string]$SnapshotName = 'dsfst-browser-ready'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,8 @@ if ($Count -lt 1) { throw 'Supply the number of VMs: create_dsfst_vms.bat 2' }
 
 $vbox = Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe'
 if (-not (Test-Path -LiteralPath $vbox)) { throw 'Oracle VirtualBox is not installed.' }
+$script:DsfstVBox = $vbox
+. (Join-Path $PSScriptRoot 'dsfst_network_common.ps1')
 $template = $TemplateVm
 $snapshot = $SnapshotName
 $memoryMB = 4096
@@ -65,6 +68,12 @@ function Get-Extra([string]$name, [string]$key) {
 }
 
 $templateInfo = Get-VMInfo $template
+if ((Get-Extra $template 'dsfst/browser-ready') -ne '1') {
+    throw "Prepare browser access first: enable_vm_browser.bat -VmName `"$template`" -PrepareTemplate"
+}
+if ((Get-Extra $template 'dsfst/browser-snapshot') -ne $snapshot) {
+    throw "Snapshot $snapshot is not the prepared browser snapshot. Run enable_vm_browser.bat -VmName `"$template`" -PrepareTemplate -SnapshotName `"$snapshot`", or select the recorded browser snapshot."
+}
 if ((Get-Extra $template 'dsfst/template-ready') -ne '1') {
     throw "Template $template is not prepared. Run enable_dsfst_autostart.sh in it, mark it ready, then create the $snapshot snapshot. See VM_FACTORY_README.txt."
 }
@@ -118,6 +127,7 @@ if ($newCount -gt 0) {
     }
 }
 
+if (-not $DryRun) { $hostOnlyAdapter = Get-DsfstHostOnlyAdapter -Create }
 foreach ($name in $names) {
     if (-not $allVMs.ContainsKey($name)) {
         Write-Host "Creating $name from $template snapshot $snapshot..."
@@ -129,13 +139,23 @@ foreach ($name in $names) {
     } else {
         Write-Host "$name already exists."
     }
+    if (-not $DryRun) {
+        if ($runningVMs.ContainsKey($name)) {
+            if (-not (Get-DsfstExtra $name 'dsfst/network-ip') -or (Get-VMInfo $name)['nic2'] -ne 'hostonly') {
+                throw "Run enable_vm_browser.bat -VmName `"$name`" to configure this existing running VM."
+            }
+        } else {
+            Set-DsfstVMNetwork $name $hostOnlyAdapter (Get-DsfstAddress $name '')
+        }
+    }
     if (-not $NoStart -and -not $runningVMs.ContainsKey($name)) {
         Write-Host "Starting $name..."
         if (-not $DryRun) {
             $state = (Get-VMInfo $name)['VMState']
-            if ($state -eq 'saved') { Invoke-VBox @('discardstate', $name) | Out-Host }
+            if ($state -eq 'saved') { throw "Resume and shut down $name before configuring it." }
             Invoke-VBox @('startvm', $name, '--type=gui') | Out-Host
         }
     }
 }
 if ($DryRun) { Write-Host 'Dry run complete; no VM was changed.' }
+else { Save-DsfstVMAddresses }

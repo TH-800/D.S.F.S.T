@@ -198,6 +198,7 @@ def start_fastapi_service(service: dict) -> subprocess.Popen | None:
         service["module"],
         "--host", "127.0.0.1",
         "--port", str(port),
+        "--root-path", f"/api/{port}",
         "--log-level", "warning",   # suppress info spam errors still show
     ]
 
@@ -258,7 +259,7 @@ def start_frontend() -> subprocess.Popen | None:
 
     try:
         proc = subprocess.Popen(
-            ["npm", "run", "dev"],
+            ["npm", "run", "start" if os.getenv("DSFST_FRONTEND_MODE") == "production" else "dev"],
             cwd=FRONTEND_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

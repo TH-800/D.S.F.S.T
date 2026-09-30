@@ -14,9 +14,8 @@
 //   - ReportsAggregator (aggregation queries) -> port 8010
 // when the backend scripts arent running we fall back to mock data so the demo still works
 
-// base host for all the FastAPI scripts - they all run on the same machine just different ports
-// change this if the backend is on a different machine (e.g. a VM or remote server)
-const BACKEND_HOST = "http://127.0.0.1";
+// The VM web server forwards these paths to its local Python services.
+// Relative URLs work both inside Linux and from a Windows browser.
 
 // port assignments for each backend script
 // these match the --port flags used when starting each script with fastapi dev
@@ -35,9 +34,9 @@ const PORTS = {
 } as const;
 
 // helper to build the full URL for a given service
-// e.g. getUrl("cpu") returns "http://localhost:8002"
+// e.g. getUrl("cpu") returns "/api/8002"
 function getUrl(service: keyof typeof PORTS): string {
-  return `${BACKEND_HOST}:${PORTS[service]}`;
+  return `/api/${PORTS[service]}`;
 }
 
 async function requireOk(res: Response, context: string): Promise<void> {

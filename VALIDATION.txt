@@ -59,3 +59,27 @@ Windows-to-VM access smoke (2026-09-29):
   creating an experiment. The Windows script reports that failed request with
   exit code 1.
 - All 17 Python smoke tests passed. No VM port forwarding was added.
+
+Direct Windows browser access (2026-09-30):
+- LinuxVm1 is configured at 192.168.56.10; its IP and web listener worked
+  after a clean shutdown and reboot. The dsfst-browser-ready snapshot includes
+  the updated production dashboard, gateway, and network boot service.
+- Created DSFST-User-001 using the updated factory. It automatically received
+  192.168.56.11, its own MAC, fresh database volumes and credentials, and a
+  working web listener. Both VMs are running with no active injections.
+- The Windows browser displayed actual VM measurements in Live API mode.
+  Swagger's Execute button returned HTTP 200 from
+  /api/8008/metrics/latest with fresh CPU, memory and network data.
+- The live Windows HTTP smoke passed separately for both IPs: dashboard HTML,
+  direct monitoring, Swagger/OpenAPI prefixes, foreign-Origin rejection,
+  HTTP 422 validation, experiment creation/start, natural completion, stored
+  time-series queries, reports, and metrics freshness under 60 seconds.
+- Live smoke experiments requested 10% CPU for 15 seconds. The orchestrator
+  reached its documented complete state and cleared the active experiment ID.
+- Database isolation check: 8 source experiments, 1 clone experiment, and no
+  shared experiment IDs. The source VM's existing records were preserved.
+- Gateway request forwarding/error tests, TypeScript check, production build,
+  PowerShell syntax checks and network tests passed. All 17 Python tests passed.
+- The gateway listens only on loopback and the assigned host-only IP. Python
+  services and database ports remain on guest loopback. This validation was
+  performed locally before publication.

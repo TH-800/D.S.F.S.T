@@ -2,9 +2,16 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { isIPv4 } from "node:net";
+import { registerApiProxy } from "./api-proxy";
 
 const app = express();
 const httpServer = createServer(app);
+const vmIp = process.env.DSFST_VM_IP;
+if (vmIp && (!isIPv4(vmIp) || !/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(vmIp))) {
+  throw new Error("DSFST_VM_IP must be a private IPv4 address");
+}
+registerApiProxy(app, vmIp);
 
 declare module "http" {
   interface IncomingMessage {
@@ -92,4 +99,10 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+  httpServer.on("error", error => { console.error(error); process.exit(1); });
+  if (vmIp) {
+    const vmServer = createServer(app);
+    vmServer.on("error", error => { console.error(error); process.exit(1); });
+    vmServer.listen({ port, host: vmIp }, () => log(`Windows access: http://${vmIp}:${port}/#/`));
+  }
 })();

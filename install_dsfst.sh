@@ -64,6 +64,7 @@ python3 -m venv .venv
     'pymongo>=4.10,<5' 'influxdb-client>=1.48,<2' 'python-dotenv>=1,<2' \
     'redis>=5,<6' 'pydantic>=2,<3'
 (cd dsft-frontend && npm ci --include=dev --no-audit --no-fund)
+(cd dsft-frontend && npm run build)
 
 # Save local configuration and the few compatibility fixes needed by this ZIP.
 # Originals are preserved in .dsfst/originals; the existing Compose file is untouched.

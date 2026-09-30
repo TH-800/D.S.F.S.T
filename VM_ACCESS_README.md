@@ -1,5 +1,8 @@
 # Read D.S.F.S.T from Windows while its VirtualBox VM is running
 
+For direct browser/Postman access by VM IP, see `VM_BROWSER_README.md` and
+`enable_vm_browser.bat`. The guest-control commands below remain available.
+
 Run `dsfst_vm_access.bat` from Windows Command Prompt in this project folder.
 It uses VirtualBox Guest Additions to execute `dsfst_probe.py` inside the VM
 and prints the JSON reply on Windows. API GET/POST requests and database reads

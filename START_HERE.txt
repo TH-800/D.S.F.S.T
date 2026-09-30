@@ -1,6 +1,10 @@
 D.S.F.S.T: START HERE
 ====================
 
+For step-by-step setup on your own Windows PC and Ubuntu VirtualBox VM,
+start with OWN_VM_SETUP.md. It includes Guest Additions, the correct GitHub
+branch, Windows browser/API access, service controls, and optional cloning.
+
 FOR A NEW OR EXISTING PROJECT FOLDER
 ------------------------------------
 Use this full project source. An existing installation must receive the updated
@@ -14,10 +18,13 @@ From a terminal inside the project folder, run as your normal Ubuntu user:
 
 For the prepared Windows VirtualBox template and a command that creates
 multiple ready-to-run VM clones, see VM_FACTORY_README.txt. Those clones start
-the app automatically at boot and do not need a guest password for setup.
+the app automatically at boot without a guest password prompt. Preparing your
+own original VM requires its administrator password once during each setup
+session; cloning and booting a prepared template require no guest password.
 
 Do not add sudo before bash. Enter your VM user's administrator password
-when requested. Use a local terminal inside the VM for network experiments.
+when requested. After browser setup, you can control experiments from Windows
+through the dashboard or the gateway APIs described in VM_BROWSER_README.md.
 The installer does not start the application, but starts/enables Docker.
 The launcher starts the databases, database setup scripts, RunALL.py and
 metrics_writer.py. Do not also start RunALL.py or 02_project_setup.sh yourself.

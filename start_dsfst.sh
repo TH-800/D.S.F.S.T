@@ -11,6 +11,11 @@ ROOT="$PWD"
 source .venv/bin/activate
 export PATH="$VIRTUAL_ENV/bin:/usr/sbin:/sbin:$PATH"
 export PYTHONUNBUFFERED=1 PORT=3000
+if [[ -f .dsfst/vm-network.env ]]; then
+    set -a
+    source .dsfst/vm-network.env
+    set +a
+fi
 
 # Prevent a second launcher from attaching to the same app or starting another writer.
 exec 9>.dsfst/running.lock
@@ -65,6 +70,9 @@ for name in ('.env', 'database/.env'):
     os.chmod(name, 0o600)
 PY
 printf 'Dashboard: http://localhost:3000/#/\nInfluxDB: %s\n' "$INFLUXDB_URL" > .dsfst/addresses.txt
+if [[ -n "${DSFST_VM_IP:-}" ]]; then
+    printf 'Windows dashboard: http://%s:3000/#/\nWindows APIs: http://%s:3000/api\n' "$DSFST_VM_IP" "$DSFST_VM_IP" >> .dsfst/addresses.txt
+fi
 (cd database && "$ROOT/.venv/bin/python" mongo_setup.py && "$ROOT/.venv/bin/python" influx_setup.py)
 
 pids=()
