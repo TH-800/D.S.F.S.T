@@ -79,3 +79,31 @@ Suggested fields/tags:
 - MongoDB will be used for experiment metadata and logs.
 - InfluxDB will be used for real-time charting and historical metrics.
 - This structure supports future dashboard, reporting, and export features.
+
+## Saved Presets Collection
+
+Collection: `saved_presets`
+
+Purpose:
+Stores reusable failure-injection configurations that can be selected
+when creating future experiments.
+
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| preset_id | String / UUID | Unique preset identifier |
+| name | String | Human-readable preset name |
+| description | String | Description of the preset |
+| failure_type | String | Type of failure injection |
+| parameters | Object | Injection-specific configuration |
+| created_by | String | User that created the preset |
+| created_at | DateTime | UTC creation timestamp |
+| updated_at | DateTime | UTC modification timestamp |
+
+### Supported Failure Types
+
+- cpu_stress
+- memory_stress
+- network_latency
+- packet_loss
