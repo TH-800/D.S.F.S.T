@@ -110,7 +110,8 @@ export default function HistoricalMetricsChart() {
           onChange={(event) =>
             setMinutes(Number(event.target.value))
           }
-          className="rounded-md border px-3 py-2"
+          className="rounded-md border bg-background text-foreground px-3 py-2"
+        //   className="rounded-md border px-3 py-2"
         >
           <option value={15}>
             Last 15 minutes
