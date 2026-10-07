@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Cpu, MemoryStick, Wifi, Clock, Activity, Server } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useAppState } from "@/lib/store";
-import ServiceStatusIndicator from "@/components/ServiceStatusIndicator";
+import ServiceConnections from "@/components/ServiceConnections";
 import {
   getMockCpuData,
   getMockMemoryData,
@@ -86,6 +86,12 @@ function formatTime(ts: string) {
 }
 
 export default function Dashboard() {
+  const { isLiveMode } = useAppState();
+  // Clear previous mock/live readings immediately when the mode changes.
+  return <DashboardContents key={isLiveMode ? "live" : "mock"} />;
+}
+
+function DashboardContents() {
   const { isLiveMode, setIsLiveMode, addLog } = useAppState();
 
   // state for the three metric types
@@ -431,6 +437,8 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      <ServiceConnections key={isLiveMode ? "live" : "mock"} live={isLiveMode} />
+
       {/* --- system status section from ExperimentMonitor --- */}
       {statusData && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -490,19 +498,7 @@ export default function Dashboard() {
                     <p className="font-medium">{statusData.summary.injection_services_online}</p>
                   </div>
                 </div>
-                {/* SCRUM-12 consumes existing monitor results; no new polling here.
-                    Mock results are labeled so they cannot be mistaken for live checks. */}
-                <ul className="space-y-2 border-t pt-3" aria-label="Backend service reachability">
-                  {Object.values(statusData.services).map((service) => (
-                    <li key={service.port}>
-                      <ServiceStatusIndicator
-                        label={`${service.script} (${service.port})`}
-                        online={service.online}
-                        mock={!isLiveMode}
-                      />
-                    </li>
-                  ))}
-                </ul>
+
               </div>
             </CardContent>
           </Card>

@@ -27,6 +27,8 @@ import {
   type OrchestratorState,
   type DbExperiment,
 } from "@/lib/api";
+import PresetControls from "@/components/PresetControls";
+import { configurationSchema, type PresetConfiguration } from "@/lib/presets";
 import { useToast } from "@/hooks/use-toast";
 
 // the different injection types we support (now includes memory stress)
@@ -64,6 +66,38 @@ export default function Experiments() {
   const [memoryMb, setMemoryMb] = useState(512);
   const [memoryDuration, setMemoryDuration] = useState(30);
   const [isStarting, setIsStarting] = useState(false);
+
+  const configuration: PresetConfiguration = injectionType === "cpu"
+    ? { failure_type: "cpu_stress", parameters: { cpu_percent: cpuPercent, duration_seconds: cpuDuration } }
+    : injectionType === "memory"
+      ? { failure_type: "memory_stress", parameters: { memory_mb: memoryMb, duration_seconds: memoryDuration } }
+      : injectionType === "latency"
+        ? { failure_type: "network_latency", parameters: { latency_ms: latencyDelay } }
+        : { failure_type: "packet_loss", parameters: { packet_loss_percent: packetLossPercent } };
+
+  // Loading only fills the form. Starting remains a separate user action.
+  function loadConfiguration(config: PresetConfiguration) {
+    switch (config.failure_type) {
+      case "cpu_stress":
+        setInjectionType("cpu");
+        setCpuPercent(config.parameters.cpu_percent);
+        setCpuDuration(config.parameters.duration_seconds);
+        break;
+      case "memory_stress":
+        setInjectionType("memory");
+        setMemoryMb(config.parameters.memory_mb);
+        setMemoryDuration(config.parameters.duration_seconds);
+        break;
+      case "network_latency":
+        setInjectionType("latency");
+        setLatencyDelay(config.parameters.latency_ms);
+        break;
+      case "packet_loss":
+        setInjectionType("packet_loss");
+        setPacketLossPercent(config.parameters.packet_loss_percent);
+        break;
+    }
+  }
 
   // orchestrator state from port 8009 and experiments from the database
   const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
@@ -126,6 +160,10 @@ export default function Experiments() {
 
   // starts a new experiment based on the current form values
   async function handleStart() {
+    if (!configurationSchema.safeParse(configuration).success) {
+      toast({ title: "Check experiment settings", description: "Use whole numbers within the displayed limits.", variant: "destructive" });
+      return;
+    }
     setIsStarting(true);
 
     // build the experiment object
@@ -496,6 +534,9 @@ export default function Experiments() {
                 />
               </div>
             )}
+
+            <PresetControls key={isLiveMode ? "live" : "mock"} live={isLiveMode}
+              configuration={configuration} onLoad={loadConfiguration} disabled={isStarting} />
 
             {/* start button */}
             <Button

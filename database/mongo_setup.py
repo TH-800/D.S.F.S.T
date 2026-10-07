@@ -17,7 +17,7 @@ def main() -> None:
         # Create collections if they do not exist
         existing_collections = db.list_collection_names()
 
-        required_collections = ["experiments", "logs", "users"]
+        required_collections = ["experiments", "logs", "users", "saved_presets"]
 
         for collection_name in required_collections:
             if collection_name not in existing_collections:
@@ -25,6 +25,10 @@ def main() -> None:
                 print(f"Created collection: {collection_name}")
             else:
                 print(f"Collection already exists: {collection_name}")
+
+        # SCRUM-15 schema support for the SCRUM-16 controls.
+        db["saved_presets"].create_index("preset_id", unique=True)
+        db["saved_presets"].create_index([("created_at", -1), ("preset_id", 1)])
 
         # Create indexes
         db["experiments"].create_index("experiment_id", unique=True)
