@@ -28,6 +28,7 @@ import {
   type DbExperiment,
 } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import ExperimentPresetControls from "@/components/ExperimentPresetControls";
 
 // the different injection types we support (now includes memory stress)
 type InjectionType = "cpu" | "latency" | "packet_loss" | "memory";
@@ -386,6 +387,34 @@ export default function Experiments() {
             <CardTitle className="text-sm font-medium">New Experiment</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* SCRUM-16: save/load configuration only, never auto-start. AI-assisted. */}
+            <ExperimentPresetControls
+              isLiveMode={isLiveMode}
+              configuration={{
+                failure_type: injectionType,
+                parameters: injectionType === "cpu"
+                  ? { cpu_percent: cpuPercent, duration_seconds: cpuDuration }
+                  : injectionType === "latency"
+                    ? { latency_ms: latencyDelay }
+                    : injectionType === "packet_loss"
+                      ? { packet_loss_percent: packetLossPercent }
+                      : { memory_mb: memoryMb, duration_seconds: memoryDuration },
+              }}
+              onLoad={(preset) => {
+                setInjectionType(preset.failure_type);
+                const p = preset.parameters;
+                if (preset.failure_type === "cpu") {
+                  setCpuPercent(p.cpu_percent); setCpuDuration(p.duration_seconds);
+                } else if (preset.failure_type === "latency") {
+                  setLatencyDelay(p.latency_ms);
+                } else if (preset.failure_type === "packet_loss") {
+                  setPacketLossPercent(p.packet_loss_percent);
+                } else {
+                  setMemoryMb(p.memory_mb); setMemoryDuration(p.duration_seconds);
+                }
+              }}
+            />
+
             {/* injection type dropdown */}
             <div className="space-y-2">
               <Label htmlFor="injection-type">Injection Type</Label>

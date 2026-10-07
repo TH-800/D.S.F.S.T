@@ -601,3 +601,8 @@ app.include_router(build_metrics_router(
     vm_registry, get_latest_metrics,
     lambda measurement, minutes: local_history(get_influx, INFLUX_ORG, INFLUX_BUCKET, measurement, minutes),
 ))
+
+
+# SCRUM-16: AI-assisted database preset routes. No injection is launched by these routes.
+from preset_api import build_presets_router
+app.include_router(build_presets_router(get_db, serialise))
