@@ -89,6 +89,10 @@ UNIT
 [Unit]
 Requires=dsfst-network.service
 After=dsfst-network.service
+
+[Service]
+Environment=DSFST_FRONTEND_MODE=production
+TimeoutStopSec=120
 UNIT
     systemctl daemon-reload
     systemctl enable dsfst-network.service

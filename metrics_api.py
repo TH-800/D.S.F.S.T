@@ -37,6 +37,8 @@ from fastapi.responses import StreamingResponse
 from influxdb_client import InfluxDBClient
 from pymongo import MongoClient, DESCENDING
 from pymongo.errors import PyMongoError
+from vm_registry import VMRegistry
+from vm_metrics import build_metrics_router, local_history
  
 # find .env relative to this script so it works regardless of where uvicorn is launched
 # try the script's own directory first, then fall back to cwd
@@ -300,7 +302,6 @@ from(bucket: "{INFLUX_BUCKET}")
     return {"labels": labels, "datasets": datasets}
  
  
-@app.get("/metrics/latest")
 def get_latest_metrics():
     """
     Return the single most recent reading for CPU, memory, and network from InfluxDB.
@@ -593,3 +594,10 @@ def health():
         "service":   "metrics_api",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+vm_registry = VMRegistry(lambda: get_db())
+app.include_router(build_metrics_router(
+    vm_registry, get_latest_metrics,
+    lambda measurement, minutes: local_history(get_influx, INFLUX_ORG, INFLUX_BUCKET, measurement, minutes),
+))

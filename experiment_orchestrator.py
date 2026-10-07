@@ -25,6 +25,11 @@
 #   POST /emergency-stop               cancel ALL active injections within 20 seconds
  
 import asyncio
+import threading
+from vm_registry import VMRegistry
+from multi_vm import BatchManager, build_orchestrator_router
+
+_local_experiment_lock = threading.RLock()
 import uuid
 import os
 import sys
@@ -88,7 +93,7 @@ app = FastAPI(title="D.S.F.S.T Experiment Orchestrator", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
@@ -105,9 +110,13 @@ async def protect_local_api(request, call_next):
  
    # DB / cache connections (opened once)
     
+_mongo_client = None
+
 def _get_mongo():
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
-    return client[MONGO_DB]
+    global _mongo_client
+    if _mongo_client is None:
+        _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
+    return _mongo_client[MONGO_DB]
  
  
 def _get_redis() -> redis.Redis:
@@ -370,6 +379,11 @@ def create_experiment(body: CreateExperimentRequest):
  
 @app.post("/experiments/{experiment_id}/start")
 def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExperimentRequest()):
+    with _local_experiment_lock:
+        return _start_local_experiment(experiment_id, body)
+
+
+def _start_local_experiment(experiment_id: str, body: StartExperimentRequest):
     """
     POST /experiments/{id}/start
     Starts the failure injection for an already-created experiment.
@@ -405,7 +419,7 @@ def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExp
     except redis.RedisError as e:
         raise HTTPException(status_code=503, detail=f"Redis unavailable: {e}") from e
  
-    if current_state == "running":
+    if current_state not in ("idle", "complete"):
         active_id = sm.get_active_experiment() if sm else "unknown"
         raise HTTPException(
             status_code=409,
@@ -477,6 +491,11 @@ def start_experiment(experiment_id: str, body: StartExperimentRequest = StartExp
  
 @app.post("/experiments/{experiment_id}/stop")
 def stop_experiment(experiment_id: str):
+    with _local_experiment_lock:
+        return _stop_local_experiment(experiment_id)
+
+
+def _stop_local_experiment(experiment_id: str):
     """
     POST /experiments/{id}/stop
     Stops a running experiment by calling the appropriate reset endpoint.
@@ -500,10 +519,19 @@ def stop_experiment(experiment_id: str):
         raise HTTPException(status_code=404, detail="Experiment not found")
  
     if exp.get("status") != "running":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Experiment status is '{exp.get('status')}', not 'running'. Nothing to stop.",
-        )
+        # A start can reach the injector while its MongoDB status write fails.
+        # Reset only if Redis identifies this exact child as active.
+        recoverable_start = False
+        if exp.get("status") == "created":
+            try:
+                recoverable_start = StateMachine(_get_redis()).get_active_experiment() == experiment_id
+            except redis.RedisError as error:
+                raise HTTPException(503, "Could not confirm this experiment's active state") from error
+        if not recoverable_start:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Experiment status is '{exp.get('status')}', not 'running'. Nothing to stop.",
+            )
  
     failure_type = exp.get("failure_type")
     now          = datetime.now(timezone.utc)
@@ -558,6 +586,11 @@ def stop_experiment(experiment_id: str):
  
 @app.post("/emergency-stop")
 def emergency_stop():
+    with _local_experiment_lock:
+        return _emergency_stop_local()
+
+
+def _emergency_stop_local():
     """
      Emergency stop function.
     Cancels ALL active injections within 20 seconds regardless of type.
@@ -667,8 +700,7 @@ def health():
     except Exception:
         pass
     try:
-        r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB,
-                        decode_responses=True, socket_connect_timeout=1)
+        r = _get_redis()
         r.ping()
         r.close()
         redis_ok = True
@@ -682,3 +714,8 @@ def health():
         "redis":     "connected" if redis_ok  else "unreachable",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+vm_registry = VMRegistry(lambda: _get_mongo())
+batch_manager = BatchManager(lambda: _get_mongo(), vm_registry, _normalise_parameters)
+app.include_router(build_orchestrator_router(vm_registry, batch_manager))

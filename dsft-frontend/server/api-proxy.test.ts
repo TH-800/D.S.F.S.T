@@ -38,6 +38,9 @@ test("VM gateway forwards JSON, queries and status codes and rejects other hosts
     const reply = await call(`${base}/api/8008/experiments?limit=2`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: '{"name":"Windows"}' });
     assert.equal(reply.status, 200);
     assert.deepEqual(await reply.json(), { path: "/experiments?limit=2", method: "POST", body: '{"name":"Windows"}', host: "127.0.0.1:8008", origin: "http://127.0.0.1:3000" });
+    const removed = await call(`${base}/api/8008/vms/id`, { method: "DELETE", headers });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.json().method, "DELETE");
     assert.equal((await fetch(`${base}/api/8008/bad`)).status, 422);
     assert.equal((await fetch(`${base}/api/8086/health`)).status, 404);
     assert.equal((await fetch(`${base}/api/8008/health`, { headers: { origin: "https://example.com" } })).status, 403);

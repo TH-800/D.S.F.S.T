@@ -23,11 +23,12 @@ User=$(id -un)
 SupplementaryGroups=docker
 WorkingDirectory=$ROOT
 Environment=DSFST_UNATTENDED=1
+Environment=DSFST_FRONTEND_MODE=production
 ExecStartPre=+/usr/sbin/modprobe sch_netem
 ExecStart=/usr/bin/bash $ROOT/start_dsfst.sh
 Restart=on-failure
 RestartSec=15
-TimeoutStopSec=45
+TimeoutStopSec=120
 KillMode=mixed
 
 [Install]

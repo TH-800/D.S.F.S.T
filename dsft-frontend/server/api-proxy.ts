@@ -38,7 +38,7 @@ export function registerApiProxy(app: Express, vmIp = process.env.DSFST_VM_IP) {
       res.status(404).json({ error: "API service must be 8000 through 8010" });
       return;
     }
-    if (!["GET", "HEAD", "POST", "OPTIONS"].includes(req.method)) {
+    if (!["GET", "HEAD", "POST", "DELETE", "OPTIONS"].includes(req.method)) {
       res.status(405).json({ error: "Unsupported API method" });
       return;
     }

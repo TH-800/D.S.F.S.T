@@ -1,0 +1,296 @@
+D.S.F.S.T - COMMANDS FOR WINDOWS AND UBUNTU
+==========================================
+Run one section at a time in the terminal named by that section.
+Commands below use Oracle VirtualBox, not VMware Workstation.
+
+QUICK START FOR AN ALREADY PREPARED VM
+-------------------------------------
+1. Start the VM in VirtualBox.
+2. Wait for dsfst.service to start the app automatically.
+3. Open the VM's printed dashboard URL from Windows.
+4. Switch Mock Data to Live API.
+
+Installation, browser setup and template preparation are one-time steps.
+Start/stop commands, data queries and tests are used when needed.
+
+
+1. REQUIREMENTS AND PROJECT FILES
+--------------------------------
+Use a Windows PC with Oracle VirtualBox installed in:
+    C:\Program Files\Oracle\VirtualBox
+
+The tested guest is Ubuntu 24.04 LTS x86-64 with AVX available, internet
+access, and a normal Ubuntu user with sudo access. A starting lab allocation
+is 4 GB RAM and a 40 GB virtual disk. Allow extra space for data and clones.
+Use Adapter 1 = NAT. Leave Adapter 2 free for the browser setup helper.
+
+Download branch main-based-dev-branch:
+    https://github.com/TH-800/D.S.F.S.T/tree/main-based-dev-branch
+
+On Windows, select Code > Download ZIP and extract the FULL project.
+The .bat files, .ps1 files, scripts, tests and frontend must stay together.
+Keep the Windows and Ubuntu project copies on the same revision.
+This branch includes setup_dsfst.sh and the multi-VM components.
+Put the project contents directly in your chosen Windows folder, for example:
+    C:\Users\YOUR_WINDOWS_USER\Desktop\dsfst testing
+
+Spaces are supported in the Windows project path.
+Keep the Ubuntu project path without spaces and at its installed location.
+Passwords are requested when needed and are not included in this guide.
+
+
+2. FIRST-TIME GUEST ADDITIONS SETUP - UBUNTU TERMINAL
+---------------------------------------------------
+Skip this section if working VirtualBox Guest Additions are already installed.
+
+    sudo apt update
+    sudo apt install -y build-essential dkms linux-headers-$(uname -r)
+
+In the VM window, choose Devices > Insert Guest Additions CD image.
+Open the mounted CD in Ubuntu's Files app, open a terminal there, and run:
+
+    sudo sh ./VBoxLinuxAdditions.run
+    sudo reboot
+
+After reboot, check:
+
+    VBoxControl --version
+
+If installation fails, use Oracle's instructions:
+    https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/guestadditions.html
+
+
+3. FIRST-TIME PROJECT INSTALLATION - UBUNTU TERMINAL
+--------------------------------------------------
+Skip this section on a VM where this project is already installed.
+
+    sudo apt update
+    sudo apt install -y git
+    git clone --branch main-based-dev-branch --single-branch https://github.com/TH-800/D.S.F.S.T.git "$HOME/D.S.F.S.T"
+    cd "$HOME/D.S.F.S.T"
+
+Run each command separately and wait for success:
+
+    bash setup_dsfst.sh
+
+Run setup_dsfst.sh as your normal user. It requests sudo when needed.
+It installs/configures the full stack, enables startup and waits for readiness.
+
+Check startup:
+
+    systemctl status dsfst.service --no-pager
+    curl -fsS http://127.0.0.1:8009/state
+
+Open inside Ubuntu:
+    http://localhost:3000/#/
+
+The installer installs runtime tools and dependencies, builds the dashboard,
+and downloads the database images. The service launches Docker databases,
+eleven Python APIs, the dashboard and metrics writer. No separate RunALL.py
+command is needed when using the service.
+
+
+4. ONE-TIME WINDOWS BROWSER SETUP - WINDOWS POWERSHELL
+----------------------------------------------------
+The VM must have the app installed, its service started, and Guest Additions
+working. Finish or stop active experiments before browser setup.
+
+Copy the following settings into Windows PowerShell. Replace the VM name,
+Ubuntu username and guest path with YOUR values. $projectFolder defaults to
+the Desktop folder of the Windows account running PowerShell.
+
+    $projectFolder = Join-Path $env:USERPROFILE 'Desktop\dsfst testing'
+    $vmName = 'My Ubuntu VM'
+    $guestUser = 'myuser'
+    $guestProjectPath = '/home/myuser/D.S.F.S.T'
+    Set-Location -LiteralPath $projectFolder
+
+If the VM is powered off, start it and wait for Ubuntu to boot:
+
+    & "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" startvm $vmName --type gui
+
+Skip that startvm command if the VM is already running.
+Enable browser access:
+
+    .\enable_vm_browser.bat -VmName $vmName -GuestUser $guestUser -GuestProjectPath $guestProjectPath
+
+Enter that Ubuntu user's password when prompted.
+The helper builds the dashboard, configures its host-only adapter and IP,
+installs the network boot service, and restarts the app. It may reboot the VM.
+
+Use the dashboard URL printed by setup. Address assignments are also saved in:
+    vm-addresses.json
+
+The assigned VM IPs are in 192.168.56.10 through 192.168.56.99.
+These addresses work on this Windows host and its private host-only network.
+The app has no user login. Python/database ports stay on guest loopback;
+Windows reaches the APIs through the dashboard gateway on TCP port 3000.
+
+
+5. API, DATABASE AND SMOKE CHECKS - WINDOWS POWERSHELL
+-----------------------------------------------------
+Run from the Windows project folder. Set $base to the URL printed for YOUR VM:
+
+    $base = 'http://192.168.56.10:3000'
+    Invoke-RestMethod "$base/api/8009/state"
+    Invoke-RestMethod "$base/api/8008/metrics/latest" | ConvertTo-Json -Depth 8
+    Invoke-RestMethod "$base/api/8008/experiments?limit=10" | ConvertTo-Json -Depth 8
+
+Open these addresses in a Windows browser, using your assigned IP:
+
+    Dashboard:       http://192.168.56.10:3000/#/
+    API directory:   http://192.168.56.10:3000/api
+    Metrics docs:    http://192.168.56.10:3000/api/8008/docs
+    Experiment docs: http://192.168.56.10:3000/api/8009/docs
+
+The /docs pages let you send GET and POST requests.
+A separate collector can save the returned JSON into an external database.
+Automatic external database synchronization is not included.
+
+Direct MongoDB, InfluxDB and Redis inspection through Guest Control:
+
+    .\dsfst_vm_access.bat db -VmName $vmName -GuestUser $guestUser -GuestProjectPath $guestProjectPath
+
+That command requests the Ubuntu password. HTTP API requests do not.
+
+Check dashboard, APIs, request validation and fresh stored metrics:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\live_vm_browser_smoke.ps1 -BaseUrl $base
+
+Optional experiment test: creates a 15-second, 10% CPU experiment and checks
+its natural completion and stored report. Run only when no experiment is active:
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\live_vm_browser_smoke.ps1 -BaseUrl $base -RunExperiment
+
+
+6. DAILY SERVICE CONTROLS - UBUNTU TERMINAL
+-----------------------------------------
+Enter YOUR installed project folder, for example:
+
+    cd "$HOME/D.S.F.S.T"
+
+Choose the command for the action you want; do not run all of them in sequence.
+
+Start:
+    sudo systemctl start dsfst.service
+
+Stop:
+    bash stop_dsfst.sh
+
+Equivalent stop command:
+    sudo systemctl stop dsfst.service
+
+Restart after finishing or stopping any experiment:
+    sudo systemctl restart dsfst.service
+
+Check services after browser setup:
+    systemctl status dsfst-network.service dsfst.service --no-pager
+
+Read recent logs:
+    journalctl -u dsfst-network.service -u dsfst.service -n 100 --no-pager
+
+Read database contents from inside Ubuntu:
+    .venv/bin/python dsfst_probe.py db
+
+Automatic boot startup needs no Ubuntu password prompt. Normal login and manual
+sudo commands can still require a password. Stopping the app preserves the
+database containers and saved data.
+
+For a manual terminal session, first stop dsfst.service, then run:
+    bash start_dsfst.sh
+
+Press Ctrl+C to stop that manual session. Use one launcher at a time.
+Keep .dsfst/, generated .env files and database volumes intact.
+Do not use "docker compose down -v" to restart; it deletes database volumes.
+
+
+7. OPTIONAL TEMPLATE PREPARATION AND CLONING - WINDOWS POWERSHELL
+----------------------------------------------------------------
+Use the settings from section 4 and run from the Windows project folder.
+
+First preparation only, when snapshot dsfst-browser-ready does not exist:
+
+    .\enable_vm_browser.bat -VmName $vmName -GuestUser $guestUser -GuestProjectPath $guestProjectPath -PrepareTemplate
+
+Preparation shuts the template down gracefully, takes an offline snapshot,
+and starts it again. Preview a total of two managed clones:
+
+    .\create_dsfst_vms.bat 2 -TemplateVm $vmName -DryRun
+
+Create/start that set:
+
+    .\create_dsfst_vms.bat 2 -TemplateVm $vmName
+
+Each clone gets its own disk, MAC, IP, database volumes and app credentials.
+On first boot, only the clone's copied D.S.F.S.T database contents are reset.
+The source VM's data is preserved. Ubuntu accounts/passwords are copied from
+the template; change login passwords before handing clones to other people.
+
+The count is the TOTAL set wanted. Repeated runs reuse existing managed VMs.
+Cloning and automatic boot require no guest password.
+The script allocates 4 GB RAM and one CPU per clone and checks host resources.
+
+After updating your template, choose a fresh snapshot name. Example:
+
+    .\enable_vm_browser.bat -VmName $vmName -GuestUser $guestUser -GuestProjectPath $guestProjectPath -PrepareTemplate -SnapshotName "dsfst-browser-ready-v2"
+    .\create_dsfst_vms.bat 2 -TemplateVm $vmName -SnapshotName "dsfst-browser-ready-v2"
+
+Existing clones are reused; a new snapshot does not update their software.
+
+
+8. SETTINGS FOR THE ORIGINAL DEVELOPMENT MACHINE
+-------------------------------------------------
+For the already configured LinuxVm1, use these Windows PowerShell settings:
+
+    $projectFolder = 'C:\Users\kaput\Desktop\dsfst testing'
+    $vmName = 'LinuxVm1'
+    $guestUser = 'rat'
+    $guestProjectPath = '/home/rat/dsfst-smoke/D.S.F.S.T-main-based-dev-branch'
+    $base = 'http://192.168.56.10:3000'
+    Set-Location -LiteralPath $projectFolder
+
+Inside that Ubuntu VM, the actual project-directory command is:
+
+    cd /home/rat/dsfst-smoke/D.S.F.S.T-main-based-dev-branch
+
+Configured addresses:
+    LinuxVm1:       http://192.168.56.10:3000/#/
+    DSFST-User-001: http://192.168.56.11:3000/#/
+
+The dsfst-browser-ready snapshot already exists on this machine.
+Skip first-time installation and template preparation on these prepared VMs.
+
+For more detail, read OWN_VM_SETUP.md, VM_BROWSER_README.md,
+VM_FACTORY_README.txt, VM_ACCESS_README.md and VALIDATION.txt in this project.
+
+9. MULTI-VM CONTROL - WINDOWS POWERSHELL
+--------------------------------------
+The coordinator is the VM at $base. It and the remote VM must both have the
+updated project installed and browser access ready. Open the coordinator's
+VMs page for the same operations through the dashboard.
+
+List known VMs:
+    Invoke-RestMethod "$base/api/8009/vms"
+
+Register another prepared VM (replace name/IP; duplicates return HTTP 409):
+    $registration = @{name='My second VM'; base_url='http://192.168.56.11:3000'} | ConvertTo-Json
+    $remote = Invoke-RestMethod "$base/api/8009/vms" -Method Post -ContentType 'application/json' -Body $registration
+
+Read that VM's stored metrics:
+    Invoke-RestMethod "$base/api/8008/metrics/latest?vm_id=$($remote.vm_id)" | ConvertTo-Json -Depth 8
+
+Launch one bounded CPU experiment on the coordinator AND registered VM:
+    $request = @{name='Two VM CPU test'; failure_type='cpu'; vm_ids=@('local', $remote.vm_id); parameters=@{cpu_percent=10; duration_seconds=15}} | ConvertTo-Json -Depth 6
+    $batch = Invoke-RestMethod "$base/api/8009/experiments/launch" -Method Post -ContentType 'application/json' -Body $request
+
+Inspect batch and individual VM results:
+    Invoke-RestMethod "$base/api/8009/experiment-batches/$($batch.batch_id)" | ConvertTo-Json -Depth 10
+
+Stop that batch when needed:
+    Invoke-RestMethod "$base/api/8009/experiment-batches/$($batch.batch_id)/stop" -Method Post
+
+Remove the registration after the batch has completed/stopped:
+    Invoke-RestMethod "$base/api/8009/vms/$($remote.vm_id)" -Method Delete
+
+Removing a registration leaves the VM and its stored data intact.
+Read MULTI_VM_README.txt for partial failures, stop retries and API details.

@@ -50,7 +50,7 @@ else
     compose=(sudo docker compose --project-name dsfst-vm --project-directory "$ROOT"
         --env-file "$ROOT/.env" -f "$ROOT/.dsfst/compose.yaml")
 fi
-"${compose[@]}" up -d --wait --wait-timeout 180 --pull never
+"${compose[@]}" up -d --wait --wait-timeout 240 --pull never
 
 # Use Docker's actual port assignments, leaving other database services alone.
 MONGO_ADDRESS="$("${compose[@]}" port mongodb 27017)"
@@ -78,7 +78,9 @@ fi
 pids=()
 cleanup() {
     trap '' INT TERM
-    # Undo active experiments before shutting down their APIs.
+    # Undo tracked multi-VM children while this coordinator and its APIs are available.
+    curl -fsS --max-time 70 -X POST http://127.0.0.1:8009/experiment-batches/emergency-stop >/dev/null 2>&1 || true
+    # Undo active local experiments before shutting down their APIs.
     curl -fsS --max-time 22 -X POST http://127.0.0.1:8009/emergency-stop >/dev/null 2>&1 || true
     for pid in "${pids[@]}"; do kill -TERM -- "-$pid" 2>/dev/null || true; done
     for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
@@ -97,7 +99,7 @@ python - <<'PY'
 import socket
 import time
 
-deadline = time.monotonic() + 120
+deadline = time.monotonic() + 420
 for port in [*range(8000, 8011), 3000]:
     while True:
         with socket.socket() as sock:

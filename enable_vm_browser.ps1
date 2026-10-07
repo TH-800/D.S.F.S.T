@@ -88,9 +88,31 @@ try {
     } while ($true)
     $state = ($stateResult.Lines -join "`n") | ConvertFrom-Json
     if ($state.state -notin @('idle','complete') -or $state.active_experiment_id) { throw 'An experiment is active. Finish or stop it before browser setup.' }
+    $batchGuard = @'
+import json
+import urllib.request
+import urllib.error
+try:
+    batches = json.load(urllib.request.urlopen('http://127.0.0.1:8009/experiment-batches?active_only=true&limit=50', timeout=60))
+except urllib.error.HTTPError as error:
+    if error.code != 404:
+        raise
+else:
+    if any(b['status'] in ('starting', 'running', 'partial_failure', 'stopping') for b in batches):
+        raise SystemExit('Finish or stop active multi-VM batches before browser setup.')
+'@
+    # PowerShell 5 native argument passing can strip quotes inside Python.
+    # Send the guard as base64 data, with a runner that contains no nested quotes.
+    $guardData = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($batchGuard))
+    $guardRunner = 'import base64, sys; exec(base64.b64decode(sys.argv[1]))'
+    Invoke-Guest ("python3 -c " + (Quote-Guest $guardRunner) + " " + (Quote-Guest $guardData)) | Out-Null
     Write-Output 'Updating browser access files and building the dashboard...'
-    $files = @('RunALL.py', 'start_dsfst.sh', 'configure_dsfst_network.sh', 'dsfst_probe.py',
-        'dsft-frontend/server/index.ts', 'dsft-frontend/server/api-proxy.ts', 'dsft-frontend/client/src/lib/api.ts')
+    $files = @('RunALL.py', 'install_dsfst.sh', 'start_dsfst.sh', 'stop_dsfst.sh', 'configure_dsfst_network.sh', 'dsfst_probe.py',
+        'dsft-frontend/server/index.ts', 'dsft-frontend/server/api-proxy.ts', 'dsft-frontend/client/src/lib/api.ts',
+        'vm_registry.py', 'vm_metrics.py', 'multi_vm.py', 'metrics_api.py', 'experiment_orchestrator.py',
+        'database/mongo_setup.py', 'setup_dsfst.sh', 'enable_dsfst_autostart.sh',
+        'dsft-frontend/client/src/App.tsx', 'dsft-frontend/client/src/components/Sidebar.tsx',
+        'dsft-frontend/client/src/pages/VMs.tsx', 'dsft-frontend/client/src/lib/vm-api.ts')
     foreach ($file in $files) {
         Invoke-DsfstVBox @('guestcontrol', $VmName, 'copyto', '--username', $GuestUser, "--passwordfile=$activePasswordFile", (Join-Path $PSScriptRoot $file), "$GuestProjectPath/$file") | Out-Null
     }

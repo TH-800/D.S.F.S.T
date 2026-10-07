@@ -3,7 +3,7 @@
 // each nav item links to a different page of the app
 
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, FlaskConical, ScrollText, FileBarChart } from "lucide-react";
+import { LayoutDashboard, FlaskConical, ScrollText, FileBarChart, Server } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -19,9 +19,10 @@ import {
 // the pages we want in the sidebar
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "VMs", url: "/vms", icon: Server },
   { title: "Experiments", url: "/experiments", icon: FlaskConical },
   { title: "Logs", url: "/logs", icon: ScrollText },
-  { title: "Reports", url: "/reports", icon: FileBarChart },
+  { title: "Reports", url: "/reports", icon: FileBarChart, Server },
 ];
 
 export function AppSidebar() {

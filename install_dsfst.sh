@@ -156,11 +156,11 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Missing MongoDB password}
     volumes: ["mongodb_data:/data/db"]
     healthcheck:
-      test: ["CMD-SHELL", "test \"$$(cat /proc/1/comm)\" = mongod && mongosh --quiet --username test1234 --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'"]
-      interval: 2s
-      timeout: 5s
-      retries: 60
-      start_period: 10s
+      test: ["CMD-SHELL", "test \"$$(cat /proc/1/comm)\" = mongod && exec mongosh --quiet --username test1234 --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 30s
   influxdb:
     image: influxdb:2.7
     ports: [{target: 8086, host_ip: "127.0.0.1"}]
@@ -174,11 +174,11 @@ services:
       INFLUXD_REPORTING_DISABLED: "true"
     volumes: ["influxdb_data:/var/lib/influxdb2", "influxdb_config:/etc/influxdb2"]
     healthcheck:
-      test: ["CMD-SHELL", "test \"$$(cat /proc/1/comm)\" = influxd && influx bucket list --host http://127.0.0.1:8086 --org dsfst-org --token \"$$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN\" >/dev/null"]
-      interval: 2s
-      timeout: 5s
-      retries: 60
-      start_period: 10s
+      test: ["CMD-SHELL", "test \"$$(cat /proc/1/comm)\" = influxd && exec influx bucket list --host http://127.0.0.1:8086 --org dsfst-org --token \"$$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN\" >/dev/null"]
+      interval: 10s
+      timeout: 30s
+      retries: 12
+      start_period: 30s
   redis:
     image: redis:7.2.4-bookworm
     ports: [{target: 6379, host_ip: "127.0.0.1"}]

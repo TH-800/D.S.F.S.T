@@ -10,14 +10,15 @@ def main() -> None:
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
     db_name = os.getenv("MONGO_DB_NAME", "dsfst")
 
+    client = None
     try:
-        client = MongoClient(mongo_uri)
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
         db = client[db_name]
 
         # Create collections if they do not exist
         existing_collections = db.list_collection_names()
 
-        required_collections = ["experiments", "logs", "users"]
+        required_collections = ["experiments", "logs", "users", "vms", "experiment_batches"]
 
         for collection_name in required_collections:
             if collection_name not in existing_collections:
@@ -32,14 +33,19 @@ def main() -> None:
         db["logs"].create_index("experiment_id")
         db["users"].create_index("user_id", unique=True)
         db["users"].create_index("email", unique=True)
+        db["vms"].create_index("vm_id", unique=True)
+        db["vms"].create_index("base_url", unique=True)
+        db["experiment_batches"].create_index("batch_id", unique=True)
+        db["experiment_batches"].create_index([("status", 1), ("vm_ids", 1)])
 
         print(f"\nMongoDB setup completed successfully for database: {db_name}")
 
     except PyMongoError as error:
-        print(f"MongoDB setup failed: {error}")
+        raise SystemExit(f"MongoDB setup failed: {error}") from error
 
     finally:
-        client.close()
+        if client is not None:
+            client.close()
 
 
 if __name__ == "__main__":

@@ -1,9 +1,79 @@
 # D.S.F.S.T
 
-D.S.F.S.T is a single Ubuntu VM failure simulation tool. Its React dashboard
-reads host CPU, memory, and network measurements and manages CPU, memory,
-latency, and packet loss experiments. The current target is the VM host; the
-project does not yet inject faults into individual containers or remote nodes.
+D.S.F.S.T is an Ubuntu VM failure simulation tool. Its React dashboard reads
+CPU, memory, and network measurements and manages CPU, memory, latency and
+packet loss experiments. A coordinator can register other prepared VMs, read
+their metrics and launch a tracked experiment batch across selected VMs.
+Injections target each VM host; individual containers are not injection targets.
+
+## Quick start
+
+First prepare an Ubuntu 24.04 LTS x86-64 VM with AVX, internet access and a
+normal user with sudo privileges. For Windows browser access, install Oracle
+VirtualBox Guest Additions using [OWN_VM_SETUP.md](OWN_VM_SETUP.md).
+
+### First installation inside Ubuntu
+
+```bash
+sudo apt update
+sudo apt install -y git
+git clone --branch main-based-dev-branch --single-branch https://github.com/TH-800/D.S.F.S.T.git "$HOME/D.S.F.S.T"
+cd "$HOME/D.S.F.S.T"
+bash setup_dsfst.sh
+```
+
+Run setup as your normal user; it requests sudo when needed. Wait for
+`Full setup complete`, then open `http://localhost:3000/#/` inside Ubuntu.
+This command installs the dependencies, configures the databases, enables
+startup and starts the dashboard, eleven APIs and metrics collection.
+
+### Enable Windows browser access once
+
+Keep Ubuntu running. Download the same branch on Windows and keep the complete
+project together. Open PowerShell in that project folder and run this command,
+replacing the VM name, Ubuntu username and guest project path with yours:
+
+```powershell
+.\enable_vm_browser.bat -VmName 'My Ubuntu VM' -GuestUser 'myuser' -GuestProjectPath '/home/myuser/D.S.F.S.T'
+```
+
+Enter your Ubuntu password when prompted. Open the dashboard URL printed by
+the helper and switch **Mock Data** to **Live API**. The API directory is
+`http://<VM-IP>:3000/api`; interactive command docs are at
+`http://<VM-IP>:3000/api/8009/docs` and stored metrics docs at
+`http://<VM-IP>:3000/api/8008/docs`.
+
+### Daily use
+
+Start the prepared VM in VirtualBox and wait for the dashboard to respond.
+The network and app services start automatically without a guest password
+prompt. Open its saved dashboard URL from Windows. Start experiments from
+the dashboard; no separate `RunALL.py` command is needed.
+
+Inside Ubuntu, use these service controls when needed:
+
+```bash
+sudo systemctl start dsfst.service
+systemctl status dsfst.service --no-pager
+```
+
+To stop the app, run `bash stop_dsfst.sh` from the installed project folder.
+For manual terminal operation, stop the service first, run
+`bash start_dsfst.sh`, and use Ctrl+C to stop that session.
+
+See [DSFST_COMMANDS.txt](DSFST_COMMANDS.txt) for the complete command reference,
+including smoke tests, database queries, cloning and multi-VM control.
+
+## Multi-VM operation
+
+Open the **VMs** page to register private VM gateway addresses, select a VM's
+stored measurements, launch across one or more targets, and inspect/stop the
+resulting batch. Registrations and batch references persist in MongoDB.
+See [MULTI_VM_README.txt](MULTI_VM_README.txt) for endpoints and result handling.
+
+For full Ubuntu setup in one command, run `bash setup_dsfst.sh` as your normal
+user. It installs/configures the frontend, backend and databases, enables the
+service and waits for startup and stored metrics to become ready.
 
 ## Set up your own VM
 
@@ -31,8 +101,10 @@ installation. Supply your own VM name and Ubuntu username when running them.
 ## Start on Ubuntu
 
 Use an Ubuntu x86-64 VM with AVX, a normal user with `sudo`, and internet access.
-From this directory, run `bash install_dsfst.sh` once, then
-`bash start_dsfst.sh`. Open `http://localhost:3000/#/` inside the VM.
+From this directory, run `bash setup_dsfst.sh` once.
+Open `http://localhost:3000/#/` inside the VM. The service starts at boot.
+For manual terminal operation after installation, stop the service and run
+`bash start_dsfst.sh`.
 The installer creates a virtual environment, downloads dependencies and
 database images, and generates local credentials. The launcher starts the
 databases, APIs, frontend, and metrics writer. Press Ctrl+C in its terminal to
@@ -40,7 +112,7 @@ stop the app. See [START_HERE.txt](START_HERE.txt) for setup details.
 
 The APIs and databases bind to VM loopback. Optional Windows browser access
 adds a web listener on the VM's host-only IP. Use it on a private test VM;
-it has no user login or remote node agent.
+it has no user login. Registered VMs must already run this project.
 
 ## Prepared VirtualBox VMs on Windows
 
@@ -71,7 +143,7 @@ With browser access enabled, Windows can also call
 
 `python -m compileall -q RunALL.py BaseNetworkInfo.py ExperimentMonitor.py
 LinuxCpuStatus.py LinuxMemoryStatus.py experiment_orchestrator.py metrics_api.py
-metrics_writer.py reports_aggregator.py InjectionScripts database` checks Python
+metrics_writer.py reports_aggregator.py vm_registry.py vm_metrics.py multi_vm.py InjectionScripts database` checks Python
 syntax. From `dsft-frontend/`, run `npm ci`, `npm run check`, and
 `npm run build`. Install `tests/requirements.txt` into the project virtual
 environment, then run `python -m unittest discover -s tests -v`. The tests
@@ -82,3 +154,7 @@ from `dsft-frontend/`, and `powershell -File tests/test_vm_network.ps1` from
 the project root. `tests/live_vm_browser_smoke.ps1 -BaseUrl http://<VM-IP>:3000`
 checks the running VM over HTTP; add `-RunExperiment` to test a bounded CPU
 experiment and read its stored results.
+
+For two prepared VMs, `tests/live_multi_vm_smoke.ps1` checks registration,
+per-VM metrics/history, one-request parallel launch, reports, natural completion,
+manual stop and temporary registration removal. See MULTI_VM_README.txt.

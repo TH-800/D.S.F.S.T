@@ -1,9 +1,8 @@
 # Clone a prepared Ubuntu VirtualBox VM on this Windows computer.
 # On a new computer, install VirtualBox, copy the full D.S.F.S.T project into
 # your Ubuntu VM, then run these commands inside the VM as its normal user:
-#   bash install_dsfst.sh
-#   bash enable_dsfst_autostart.sh
-# Test with: sudo systemctl start dsfst.service
+#   bash setup_dsfst.sh
+# Test with: systemctl is-active dsfst.service
 # In Windows, run the one-time network setup and prepare a fresh snapshot:
 #   enable_vm_browser.bat -VmName "My Ubuntu VM" -GuestUser myuser -PrepareTemplate
 # Each clone gets its own permanent 192.168.56.x browser/API address.

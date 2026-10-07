@@ -83,3 +83,82 @@ Direct Windows browser access (2026-09-30):
 - The gateway listens only on loopback and the assigned host-only IP. Python
   services and database ports remain on guest loopback. This validation was
   performed locally before publication.
+
+Multi-VM operation and full setup (2026-10-06, America/Toronto):
+- All 39 Python tests passed, including VM registration/removal, isolated
+  metrics, parallel starts, offline/busy preflight, durable child tracking,
+  recovery of interrupted operations, failed resets, and staggered child
+  completion. Launcher tests cover slow imports, owned-process cleanup and
+  stopping the remaining stack after a required backend exits.
+- Frontend TypeScript check, production build and gateway forwarding tests
+  passed. The VMs dashboard page displayed real stored local metrics.
+- bash setup_dsfst.sh completed successfully on LinuxVm1 and DSFST-User-001.
+  It installed/configured databases, backend dependencies and frontend,
+  enabled the app service, and confirmed MongoDB/Redis connections plus
+  fresh CPU, memory and network readings.
+- Actual cold-start testing found MongoDB health probes and Python imports
+  could exceed their old timeouts. Database probes now allow slower startup
+  and terminate their actual probe process; the launcher waits longer for
+  imports and exits cleanly if a required component cannot start.
+- The Windows live_multi_vm_smoke.ps1 test passed against LinuxVm1 at
+  192.168.56.10:3000 and DSFST-User-001 at 192.168.56.11:3000.
+  It registered/listed the remote VM, read separate fresh CPU/memory/network
+  readings and stored history from both, then sent one launch request for
+  a 15-second 10% CPU experiment on both VMs.
+- Each VM confirmed its own unique active child ID. Removing the remote VM
+  while the batch was active returned HTTP 409. Both children completed
+  naturally, both node records were completed, and stored time series and
+  reports were readable from Windows.
+- The initial live run exposed a status bug when one child completed before
+  another. Reconciliation now keeps such a batch running until all children
+  finish. A regression test and the successful live rerun cover this case.
+- A second two-VM 10% CPU batch was stopped through the coordinator. Both
+  child records became completed and both VMs cleared their active IDs.
+  The test removed its temporary registration and confirmed removal.
+- Successful natural batch: 531a4992-9acb-4f2c-b26f-f2355ad94cbc.
+  Successful manually stopped batch: 7b1b88df-dc02-4668-a33e-ab969dcf27e9.
+  Local detailed result: .dsfst/multi-vm-live.json (ignored by Git).
+- The final multi_vm.py SHA-256 matched on Windows and both guests:
+  08f491b9c07e8e9b4606f4f99fbaa97028dd6205f14d7a2025fe5582db05b3ba.
+- Live multi-VM fault validation used two dedicated guests and bounded CPU
+  load. Other multi-VM failure paths were covered by tests without applying
+  host faults. Existing template snapshots must be refreshed to include
+  these new files before creating upgraded clones.
+
+Full verification rerun (2026-10-07, America/Toronto):
+- Booted LinuxVm1 and DSFST-User-001 from powered-off state; their application
+  services and stored metrics became ready automatically.
+- All 39 Python tests, Windows network/access helper checks, frontend check
+  and production build, and the gateway forwarding test passed.
+- bash setup_dsfst.sh completed successfully on both VMs.
+- The real enable_vm_browser.bat helper passed on both VMs after fixing two
+  deployment issues: a missing stop_dsfst.sh copy and PowerShell 5 quote
+  handling in the multi-VM safety guard.
+- bash stop_dsfst.sh stopped the source app; systemctl start restored it.
+- Dashboard/API gateway smoke checks passed independently on both VM IPs.
+- The live multi-VM run passed with natural batch 71ce3360-c5fe-44a4-8000-85aade3223d3
+  and manually stopped batch bb4b02c9-7151-47c2-9b0a-55f64b6b4710.
+  Both natural child records were completed; both stored reports and time
+  series were retrieved through Windows HTTP requests.
+- Windows dsfst_vm_access.bat read MongoDB, InfluxDB and Redis on both VMs.
+  All three Docker database containers were healthy on each VM. All eleven
+  APIs were available and both VMs had zero active experiments/batches.
+- Checked deployed program content matched the Windows project. The raw
+  metrics_writer.py checksum differed only because of line endings.
+- Clone factory dry run passed; no additional VM or refreshed template
+  snapshot was created in this rerun.
+- Complete output: FULL_RUN_OUTPUT.txt. Detailed raw logs and JSON are in
+  the ignored .dsfst/full-run-2026-10-07-67f12e67 directory.
+- No GitHub commit or push was made during verification.
+Pre-publication verification (2026-10-07, America/Toronto):
+- Reran all 39 Python tests successfully before publishing.
+- Both prepared VMs were powered off. Started LinuxVm1 and DSFST-User-001
+  and confirmed dsfst-network.service and dsfst.service started automatically.
+- The live_vm_browser_smoke.ps1 check passed on both .10 and .11 after boot:
+  dashboard HTML, API directory, monitoring endpoints, interactive docs,
+  request validation and fresh stored CPU/memory/network readings.
+- Both VMs reported complete state with no active local experiment.
+- README quick start and DSFST_COMMANDS.txt document installation, daily
+  startup, Windows browser access, service controls, testing and cloning.
+- Full run output, screenshots, generated endpoint links, credentials and
+  raw logs remain local. VALIDATION.txt records the verification scope.
