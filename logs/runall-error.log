@@ -1,0 +1,28 @@
+Traceback (most recent call last):
+  File "D:\Capstone\D.S.F.S.T\RunALL.py", line 222, in start_fastapi_service
+    ok(f"{BOLD}{name}{RESET}{GREEN} — listening on http://127.0.0.1:{port}{RESET}")
+  File "D:\Capstone\D.S.F.S.T\RunALL.py", line 138, in ok
+    def ok(msg):   print(f"  {GREEN}\u2714{RESET}  {msg}")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2714' in position 7: character maps to <undefined>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Capstone\D.S.F.S.T\RunALL.py", line 414, in <module>
+    main()
+  File "D:\Capstone\D.S.F.S.T\RunALL.py", line 377, in main
+    proc = start_fastapi_service(service)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Capstone\D.S.F.S.T\RunALL.py", line 238, in start_fastapi_service
+    err(f"{name} — failed to start: {e}")
+  File "D:\Capstone\D.S.F.S.T\RunALL.py", line 140, in err
+    def err(msg):  print(f"  {RED}\u2716{RESET}  {msg}")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2716' in position 7: character maps to <undefined>

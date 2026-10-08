@@ -15,15 +15,12 @@ Write-Output "Waiting for Docker Desktop..."
 $dockerReady = $false
 
 for ($i = 0; $i -lt 60; $i++) {
-    try {
-        docker info *> $null
 
-        if ($LASTEXITCODE -eq 0) {
-            $dockerReady = $true
-            break
-        }
-    }
-    catch {
+    cmd.exe /c "docker info >nul 2>&1"
+
+    if ($LASTEXITCODE -eq 0) {
+        $dockerReady = $true
+        break
     }
 
     Start-Sleep -Seconds 5
@@ -35,7 +32,7 @@ if (-not $dockerReady) {
 
 Write-Output "Starting Docker services..."
 
-docker-compose up -d
+cmd.exe /c "docker-compose up -d"
 
 if ($LASTEXITCODE -ne 0) {
     throw "docker-compose failed."

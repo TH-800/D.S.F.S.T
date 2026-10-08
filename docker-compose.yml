@@ -1,10 +1,13 @@
 name: dsfst-vm
+
 services:
   mongodb:
     image: mongo:6.0.13
     platform: linux/amd64
     ports:
       - target: 27017
+        published: "27017"
+        protocol: tcp
         host_ip: "127.0.0.1"
     environment:
       MONGO_INITDB_ROOT_USERNAME: test1234
@@ -17,6 +20,8 @@ services:
     platform: linux/amd64
     ports:
       - target: 8086
+        published: "8086"
+        protocol: tcp
         host_ip: "127.0.0.1"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
@@ -34,6 +39,8 @@ services:
     platform: linux/amd64
     ports:
       - target: 6379
+        published: "6379"
+        protocol: tcp
         host_ip: "127.0.0.1"
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:

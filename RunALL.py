@@ -16,28 +16,41 @@ import os
 import time
 import signal
 import threading
+import shutil
+
 
 # Configuration edit these paths if you move scripts  DO EDIT THE PATHS
-# OR KEEP THE SAME FOLDER AND STUFF THE SAME 
+# OR KEEP THE SAME FOLDER AND STUFF THE SAME
+
 
 # absolute path to the D.S.F.S.T-dev directory
 # defaults to the folder this script lives in
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
 # path to the React frontend folder
 FRONTEND_DIR = os.path.join(BASE_DIR, "dsft-frontend")
 
+
 # path to the InjectionScripts subfolder
 INJECTION_DIR = os.path.join(BASE_DIR, "InjectionScripts")
+
 
 # uvicorn executable — uses the system one; swap for a venv path if needed
 # e.g. os.path.join(BASE_DIR, "venv", "bin", "uvicorn")
 UVICORN = "uvicorn"
 
+
+# Resolve npm executable.
+# Windows normally uses npm.cmd.
+NPM = shutil.which("npm.cmd") or shutil.which("npm")
+
+
 # how long to wait (seconds) between starting each service
 # gives each one time to bind its port before the next one starts
 STARTUP_DELAY = 0.1
 BACKEND_START_TIMEOUT = 30.0
+
 
 # Service definitions
 # { "name": display name, "module": uvicorn app string, "port": int,
@@ -47,17 +60,19 @@ BACKEND_START_TIMEOUT = 30.0
 # -----------------------------------------------------------------------
 
 
-#service table to be used in a loop to launch all the scripts 
-#dont change any of the ports and dont change anything here or else it breaks 
+#service table to be used in a loop to launch all the scripts
+#dont change any of the ports and dont change anything here or else it breaks
 SERVICES = [
-    #  monitor (starts first so it's ready when everything else comes up) 
+
+    # monitor (starts first so it's ready when everything else comes up)
     {
         "name": "ExperimentMonitor",
         "module": "ExperimentMonitor:app",
         "port": 8000,
         "cwd": BASE_DIR,
     },
-    # passive monitoring scripts 
+
+    # passive monitoring scripts
     {
         "name": "BaseNetworkInfo",
         "module": "BaseNetworkInfo:app",
@@ -76,7 +91,8 @@ SERVICES = [
         "port": 8003,
         "cwd": BASE_DIR,
     },
-    # injection scripts 
+
+    # injection scripts
     {
         "name": "CPUStressInjection",
         "module": "CPUStressInjection:app",
@@ -101,9 +117,10 @@ SERVICES = [
         "port": 8007,
         "cwd": INJECTION_DIR,
     },
+
     # persistence + orchestration layer i hate IPV6 AND LINUX VMWARE BREAKING THE IP ROUTING TABLES
-    # SUDO NANO AND FOLLOW THE TXT FILE FOR THE IP TABLE FIXING 
-    
+    # SUDO NANO AND FOLLOW THE TXT FILE FOR THE IP TABLE FIXING
+
     {
         "name": "MetricsAPI",
         "module": "metrics_api:app",
@@ -125,7 +142,8 @@ SERVICES = [
 
 ]
 
-# Colour helpers for terminal output becuase my eyes hurt looking at things  note this was vibe coded
+
+# Colour helpers for terminal output becuase my eyes hurt looking at things note this was vibe coded
 
 RESET  = "\033[0m"
 BOLD   = "\033[1m"
@@ -135,32 +153,49 @@ RED    = "\033[31m"
 CYAN   = "\033[36m"
 DIM    = "\033[2m"
 
-def ok(msg):   print(f"  {GREEN}✔{RESET}  {msg}")
-def warn(msg): print(f"  {YELLOW}⚠{RESET}  {msg}")
-def err(msg):  print(f"  {RED}✖{RESET}  {msg}")
-def info(msg): print(f"  {CYAN}→{RESET}  {msg}")
 
+def ok(msg):
+    print(f"  {GREEN}✔{RESET}  {msg}")
+
+
+def warn(msg):
+    print(f"  {YELLOW}⚠{RESET}  {msg}")
+
+
+def err(msg):
+    print(f"  {RED}✖{RESET}  {msg}")
+
+
+def info(msg):
+    print(f"  {CYAN}→{RESET}  {msg}")
 
 
 # Port availability check
 
 def port_in_use(port: int) -> bool:
-    #returns True if something is already listening on the given port
+    # returns True if something is already listening on the given port
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def wait_for_port(port: int, timeout: float = 30.0, proc=None) -> bool:
-    #Blocks this until a port is accepting connections or the timeout is reached
+    # Blocks this until a port is accepting connections or the timeout is reached
+
     deadline = time.monotonic() + timeout
+
     while time.monotonic() < deadline:
+
         if proc is not None and proc.poll() is not None:
             return False
+
         if port_in_use(port):
             return True
+
         time.sleep(0.3)
+
     return False
 
 
@@ -169,26 +204,35 @@ def wait_for_port(port: int, timeout: float = 30.0, proc=None) -> bool:
 # list of (name, subprocess.Popen) tuples so we can kill them all on exit
 running_processes: list[tuple[str, subprocess.Popen]] = []
 
+
 def stream_output(name: str, proc: subprocess.Popen):
-    
-    ##Reads stdout/stderr from a subprocess in a background thread and
-    ##prefixes each line with the service name so mixed output is readable.
-    
+
+    ## Reads stdout/stderr from a subprocess in a background thread and
+    ## prefixes each line with the service name so mixed output is readable.
+
     prefix = f"{DIM}[{name}]{RESET} "
+
     try:
+
         for line in proc.stdout:
+
             text = line.decode(errors="replace").rstrip()
+
             if text:
                 print(f"{prefix}{text}")
+
     except Exception:
         pass
+
 
 # Startup
 
 def start_fastapi_service(service: dict) -> subprocess.Popen | None:
     """
-    Launches a single uvicorn service. Returns the Popen object or None on failure.
+    Launches a single uvicorn service.
+    Returns the Popen object or None on failure.
     """
+
     port = service["port"]
     name = service["name"]
 
@@ -202,122 +246,241 @@ def start_fastapi_service(service: dict) -> subprocess.Popen | None:
         "--host", "127.0.0.1",
         "--port", str(port),
         "--root-path", f"/api/{port}",
-        "--log-level", "warning",   # suppress info spam errors still show
+        "--log-level", "warning",
     ]
 
     try:
+
         proc = subprocess.Popen(
             cmd,
             cwd=service["cwd"],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,   # merge stderr into stdout
+            stderr=subprocess.STDOUT,
         )
 
         # stream output in a background thread
-        t = threading.Thread(target=stream_output, args=(name, proc), daemon=True)
+        t = threading.Thread(
+            target=stream_output,
+            args=(name, proc),
+            daemon=True
+        )
         t.start()
 
         # Allow slower VM imports; stop waiting immediately if the child exits.
-        if wait_for_port(port, timeout=BACKEND_START_TIMEOUT, proc=proc):
-            ok(f"{BOLD}{name}{RESET}{GREEN} — listening on http://127.0.0.1:{port}{RESET}")
+        if wait_for_port(
+            port,
+            timeout=BACKEND_START_TIMEOUT,
+            proc=proc
+        ):
+
+            ok(
+                f"{BOLD}{name}{RESET}{GREEN} — "
+                f"listening on http://127.0.0.1:{port}{RESET}"
+            )
+
             return proc
+
         else:
+
             err(f"{name} — did not bind to port {port} in time")
+
             proc.terminate()
+
             try:
                 proc.wait(timeout=5)
+
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
+
             return None
 
     except FileNotFoundError:
-        err(f"{name} — '{UVICORN}' not found. Is it installed? (pip install uvicorn)")
+
+        err(
+            f"{name} — '{UVICORN}' not found. "
+            f"Is it installed? (pip install uvicorn)"
+        )
+
         return None
+
     except Exception as e:
+
         err(f"{name} — failed to start: {e}")
+
         return None
 
 
 def start_frontend() -> subprocess.Popen | None:
-    
-    #Runs `npm run dev` inside the frontend directory.
-    
+
+    # Runs the React frontend from the frontend directory.
+
     if not os.path.isdir(FRONTEND_DIR):
         err(f"Frontend directory not found: {FRONTEND_DIR}")
+        return None
+
+    # npm.cmd is normally required when launching npm from Python on Windows.
+    if not NPM:
+        err("npm not found — install Node.js to run the frontend")
         return None
 
     if port_in_use(3000):
         warn("Frontend: port 3000 is already in use — skipping npm run dev")
         return None
 
+    # Windows .cmd files need to be launched through the shell.
+    use_shell = os.name == "nt"
+
     # make sure node_modules exists
     if not os.path.isdir(os.path.join(FRONTEND_DIR, "node_modules")):
+
         print()
-        info("node_modules not found — running npm install first (this may take a minute)...")
+
+        info(
+            "node_modules not found — running npm install first "
+            "(this may take a minute)..."
+        )
+
         try:
+
+            if use_shell:
+                install_cmd = f'"{NPM}" install'
+            else:
+                install_cmd = [NPM, "install"]
+
             subprocess.run(
-                ["npm", "install"],
+                install_cmd,
                 cwd=FRONTEND_DIR,
                 check=True,
+                shell=use_shell,
             )
+
         except subprocess.CalledProcessError:
+
             err("npm install failed — frontend will not start")
+
+            return None
+
+        except FileNotFoundError:
+
+            err("npm not found — install Node.js to run the frontend")
+
             return None
 
     try:
+
+        frontend_mode = (
+            "start"
+            if os.getenv("DSFST_FRONTEND_MODE") == "production"
+            else "dev"
+        )
+
+        if use_shell:
+
+            frontend_cmd = f'"{NPM}" run {frontend_mode}'
+
+        else:
+
+            frontend_cmd = [
+                NPM,
+                "run",
+                frontend_mode,
+            ]
+
         proc = subprocess.Popen(
-            ["npm", "run", "start" if os.getenv("DSFST_FRONTEND_MODE") == "production" else "dev"],
+            frontend_cmd,
             cwd=FRONTEND_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            shell=use_shell,
         )
 
         t = threading.Thread(
-            target=stream_output, args=("Frontend", proc), daemon=True
+            target=stream_output,
+            args=("Frontend", proc),
+            daemon=True
         )
         t.start()
 
-        # Vite can take a few seconds to compile #vite is also the frontend display i think 
-        if wait_for_port(3000, timeout=30.0, proc=proc):
-            ok(f"{BOLD}Frontend{RESET}{GREEN} — http://localhost:3000/#/{RESET}")
+        # Vite can take a few seconds to compile
+        if wait_for_port(
+            3000,
+            timeout=90.0,
+            proc=proc
+        ):
+
+            ok(
+                f"{BOLD}Frontend{RESET}{GREEN} — "
+                f"http://localhost:3000/#/{RESET}"
+            )
+
             return proc
+
         else:
+
             err("Frontend did not become ready on port 3000")
+
             proc.terminate()
+
             try:
                 proc.wait(timeout=5)
+
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
+
             return None
 
     except FileNotFoundError:
+
         err("npm not found — install Node.js to run the frontend")
+
         return None
+
     except Exception as e:
+
         err(f"Frontend — failed to start: {e}")
+
         return None
+
 
 # Shutdown
 
 def shutdown_all():
-    """Terminate every process we started  forcefully"""
+    """Terminate every process we started forcefully"""
+
     print()
+
     print(f"{YELLOW}Shutting down all services…{RESET}")
+
     for name, proc in running_processes:
-        if proc.poll() is None:  # still alive then
+
+        if proc.poll() is None:
+
             info(f"Stopping {name}…")
+
             proc.terminate()
 
-    # give them 5 seconds to exit 
+    # give them 5 seconds to exit
     deadline = time.time() + 5.0
+
     for name, proc in running_processes:
-        remaining = max(0, deadline - time.time())
+
+        remaining = max(
+            0,
+            deadline - time.time()
+        )
+
         try:
+
             proc.wait(timeout=remaining)
+
         except subprocess.TimeoutExpired:
-            warn(f"{name} did not exit in time — sending SIGKILL")
+
+            warn(
+                f"{name} did not exit in time — sending SIGKILL"
+            )
+
             proc.kill()
             proc.wait(timeout=5)
 
@@ -325,88 +488,218 @@ def shutdown_all():
 
 
 def handle_signal(signum, frame):
+
     shutdown_all()
+
     sys.exit(0)
 
 
-# Mainly i used vibe coding here to make it easy for me to debug it inthe terminal 
-# by having color coding for the services 
+# Mainly i used vibe coding here to make it easy for me to debug it inthe terminal
+# by having color coding for the services
 
 
 def print_banner():
+
     print()
-    print(f"{BOLD}{CYAN}  D.S.F.S.T — Service Launcher{RESET}")
-    print(f"  {DIM}Distributed Systems Failure Simulation Tool{RESET}")
+
+    print(
+        f"{BOLD}{CYAN}  D.S.F.S.T — Service Launcher{RESET}"
+    )
+
+    print(
+        f"  {DIM}Distributed Systems Failure Simulation Tool{RESET}"
+    )
+
     print()
 
 
 def print_summary():
+
     print()
+
     print(f"{BOLD}  Service URLs{RESET}")
-    print(f"  {DIM}{'─' * 50}{RESET}")
-    print(f"  {GREEN}Frontend{RESET}              http://localhost:3000/#/")
-    print(f"  {GREEN}ExperimentMonitor{RESET}     http://127.0.0.1:8000/status")
-    print(f"  {GREEN}BaseNetworkInfo{RESET}        http://127.0.0.1:8001/network")
-    print(f"  {GREEN}LinuxCpuStatus{RESET}         http://127.0.0.1:8002/cpu")
-    print(f"  {GREEN}LinuxMemoryStatus{RESET}      http://127.0.0.1:8003/memory")
-    print(f"  {GREEN}CPUStressInjection{RESET}     http://127.0.0.1:8004/inject/cpu")
-    print(f"  {GREEN}NetworkLatencyInj.{RESET}     http://127.0.0.1:8005/inject/latency/{{ms}}")
-    print(f"  {GREEN}PacketLossInjection{RESET}    http://127.0.0.1:8006/inject/packetloss/{{%}}")
-    print(f"  {GREEN}MemoryStressInj.{RESET}       http://127.0.0.1:8007/inject/memory")
-    print(f"  {GREEN}MetricsAPI{RESET}             http://127.0.0.1:8008/experiments")
-    print(f"  {GREEN}ExperimentOrchest.{RESET}     http://127.0.0.1:8009/state")
-    print(f"  {GREEN}ReportsAggregator{RESET}      http://127.0.0.1:8010/reports/aggregate")
+
+    print(
+        f"  {DIM}{'─' * 50}{RESET}"
+    )
+
+    print(
+        f"  {GREEN}Frontend{RESET}              "
+        f"http://localhost:3000/#/"
+    )
+
+    print(
+        f"  {GREEN}ExperimentMonitor{RESET}     "
+        f"http://127.0.0.1:8000/status"
+    )
+
+    print(
+        f"  {GREEN}BaseNetworkInfo{RESET}        "
+        f"http://127.0.0.1:8001/network"
+    )
+
+    print(
+        f"  {GREEN}LinuxCpuStatus{RESET}         "
+        f"http://127.0.0.1:8002/cpu"
+    )
+
+    print(
+        f"  {GREEN}LinuxMemoryStatus{RESET}      "
+        f"http://127.0.0.1:8003/memory"
+    )
+
+    print(
+        f"  {GREEN}CPUStressInjection{RESET}     "
+        f"http://127.0.0.1:8004/inject/cpu"
+    )
+
+    print(
+        f"  {GREEN}NetworkLatencyInj.{RESET}     "
+        f"http://127.0.0.1:8005/inject/latency/{{ms}}"
+    )
+
+    print(
+        f"  {GREEN}PacketLossInjection{RESET}    "
+        f"http://127.0.0.1:8006/inject/packetloss/{{%}}"
+    )
+
+    print(
+        f"  {GREEN}MemoryStressInj.{RESET}       "
+        f"http://127.0.0.1:8007/inject/memory"
+    )
+
+    print(
+        f"  {GREEN}MetricsAPI{RESET}             "
+        f"http://127.0.0.1:8008/experiments"
+    )
+
+    print(
+        f"  {GREEN}ExperimentOrchest.{RESET}     "
+        f"http://127.0.0.1:8009/state"
+    )
+
+    print(
+        f"  {GREEN}ReportsAggregator{RESET}      "
+        f"http://127.0.0.1:8010/reports/aggregate"
+    )
+
     print()
-    print(f"  {DIM}Run  python metrics_writer.py  in a separate terminal to persist metrics.{RESET}")
-    print(f"  {DIM}Press Ctrl+C to stop all services.{RESET}")
+
+    print(
+        f"  {DIM}Run  python metrics_writer.py  "
+        f"in a separate terminal to persist metrics.{RESET}"
+    )
+
+    print(
+        f"  {DIM}Press Ctrl+C to stop all services.{RESET}"
+    )
+
     print()
-#end of vibe code snippet
+
+
+# end of vibe code snippet
+
 
 def main():
+
     print_banner()
 
     # register signal handlers for Ctrl+C and kill
-    signal.signal(signal.SIGINT,  handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(
+        signal.SIGINT,
+        handle_signal
+    )
 
-    #  start FastAPI services 
-    print(f"{BOLD}  Starting backend services…{RESET}")
+    signal.signal(
+        signal.SIGTERM,
+        handle_signal
+    )
+
+    # start FastAPI services
+    print(
+        f"{BOLD}  Starting backend services…{RESET}"
+    )
+
     print()
 
     for service in SERVICES:
+
         proc = start_fastapi_service(service)
+
         if proc is None:
-            err("Required backend failed; stopping the partial startup.")
+
+            err(
+                "Required backend failed; "
+                "stopping the partial startup."
+            )
+
             shutdown_all()
+
             raise SystemExit(1)
-        running_processes.append((service["name"], proc))
+
+        running_processes.append(
+            (
+                service["name"],
+                proc
+            )
+        )
+
         time.sleep(STARTUP_DELAY)
 
-    #  start frontend 
+    # start frontend
     print()
-    print(f"{BOLD}  Starting frontend…{RESET}")
+
+    print(
+        f"{BOLD}  Starting frontend…{RESET}"
+    )
+
     print()
 
     frontend_proc = start_frontend()
+
     if frontend_proc is None:
-        err("Required frontend failed; stopping the partial startup.")
+
+        err(
+            "Required frontend failed; "
+            "stopping the partial startup."
+        )
+
         shutdown_all()
+
         raise SystemExit(1)
-    running_processes.append(("Frontend", frontend_proc))
+
+    running_processes.append(
+        (
+            "Frontend",
+            frontend_proc
+        )
+    )
 
     print_summary()
 
-    #  wait for signals 
+    # wait for signals
     try:
+
         while True:
+
             # check if any process died unexpectedly and warn
             for name, proc in running_processes:
+
                 if proc.poll() is not None:
-                    warn(f"{name} exited unexpectedly (return code {proc.returncode})")
+
+                    warn(
+                        f"{name} exited unexpectedly "
+                        f"(return code {proc.returncode})"
+                    )
+
                     shutdown_all()
+
                     raise SystemExit(1)
+
             time.sleep(3)
+
     except KeyboardInterrupt:
+
         shutdown_all()
 
 
