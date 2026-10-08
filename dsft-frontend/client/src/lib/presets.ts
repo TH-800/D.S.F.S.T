@@ -22,7 +22,13 @@ const metadataSchema = z.object({
   preset_id: z.string().min(1), name: z.string().trim().min(1).max(80),
   created_at: z.string(),
 });
-export const savedPresetSchema = configurationSchema.and(metadataSchema);
+export const savedPresetSchema = z.preprocess(value => {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const aliases: Record<string, string> = { cpu: "cpu_stress", memory: "memory_stress", latency: "network_latency" };
+  return { ...record, failure_type: typeof record.failure_type === "string"
+    ? aliases[record.failure_type] ?? record.failure_type : record.failure_type };
+}, configurationSchema.and(metadataSchema));
 export type SavedPreset = z.infer<typeof savedPresetSchema>;
 const MOCK_KEY = "dsfst.mock-presets.v1";
 

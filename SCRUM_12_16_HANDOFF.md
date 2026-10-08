@@ -80,7 +80,7 @@ From Windows, use the prepared VM's dashboard URL `http://<VM-IP>:3000/#/` from 
 - TypeScript check and production build.
 - Reusable indicator rendering and accessible labels.
 - React interaction checks in jsdom with simulated API responses: four preset types, remount persistence, mock/live separation, failed save/load, parameter bounds, red/green/unknown lights and recovery. No injection calls.
-- 43 Python smoke and preset API tests, including an in-memory Mongo double, including database failures, invalid settings and origin checks.
+- 52 Python smoke, local-fix and preset API tests, including an in-memory Mongo double, including database failures, invalid settings and origin checks.
 - Actual built Express gateway to actual FastAPI save/list/load endpoints and monitor, with an in-memory Mongo double. No experiments created.
 
 Commands:
@@ -111,3 +111,11 @@ For the proposed `loadConfiguration` snippet, be able to explain:
 - No API start request occurs in this function. `handleStart` is separate.
 
 Do not claim you fixed a bug or learned a technique unless that matches your experience. Present individually at the weekly meeting, then submit the document in Slate as instructed by Professor Hogan.
+
+## Version 2: preserve the existing Ubuntu setup
+
+The v2 bundle includes the original integration plus compatibility for the existing preset records: legacy cpu, memory and latency names are translated in API responses and frontend reads without rewriting stored records or changing preset IDs. An existing unique-name index is retained; duplicate names return HTTP 409.
+
+It also carries forward the local CPU load/worker and process-reaping fixes, memory availability guard and process-group cleanup, and metric collection timestamps. Tarun's newer completion handling remains in place instead of transplanting the older finalize endpoint. These fixes have mocked tests; no stress injection was run during verification.
+
+Momin's current Ubuntu checkout has local modifications and a running older backend. Preserve those files before switching branches. Do not register the old preset_api router alongside saved_presets: both expose the same routes. Inspect the current startup method before using installer or systemd commands above. The v2 bundle has not yet been installed or verified on Momin's machines.

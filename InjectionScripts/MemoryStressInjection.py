@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 import subprocess
+import threading
+import signal
+import psutil
 from datetime import datetime
 import os
 app = FastAPI()
@@ -66,6 +69,11 @@ def inject_memory_stress(memory_mb: int, duration: int):
     # as we can use this for testing in bash shell 
 
    # get number of CPU cores (fallback to 1 if None)
+    # Preserve the available-memory guard from Momin's Ubuntu copy.
+    available_mb = psutil.virtual_memory().available // (1024 * 1024)
+    allowed_mb = min(4096, available_mb // 2, max(0, available_mb - 512))
+    if memory_mb > allowed_mb:
+        return {"error": f"Requested {memory_mb} MB exceeds the current limit of {allowed_mb} MB; available memory is {available_mb} MB"}
     cpu_cores = os.cpu_count() or 1
 
     # use 1/4 of the  workers to prevent the rest of the cpus going crazy and spread em out 
@@ -86,7 +94,8 @@ def inject_memory_stress(memory_mb: int, duration: int):
 
     # Start stress test
     try:
-        memory_process = subprocess.Popen(command)#injects the command and stores the process
+        memory_process = subprocess.Popen(command, start_new_session=True)
+        threading.Thread(target=memory_process.wait, daemon=True).start()
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
     except Exception as error:
@@ -116,14 +125,24 @@ def reset_memory_stress():
     
     global memory_process
 
-    if memory_process and memory_process.poll() is None:
-        memory_process.terminate()
-        try:
-            memory_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            memory_process.kill()
-            memory_process.wait(timeout=3)
+    proc = memory_process
+    if proc is None or proc.poll() is not None:
         memory_process = None
-        return {"message": "Memory stress stopped"}
-
-    return {"message": "No memory stress running"}
+        return {"message": "No memory stress running"}
+    try:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait(timeout=5)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Memory reset failed")
+    memory_process = None
+    return {"message": "Memory stress stopped"}

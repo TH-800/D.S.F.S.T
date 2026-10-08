@@ -12,7 +12,7 @@ const { render, screen, fireEvent, waitFor, cleanup } = await import('@testing-l
 const { default: PresetControls } = await import('../client/src/components/PresetControls');
 const { default: ServiceConnections } = await import('../client/src/components/ServiceConnections');
 const { getMockStatusData } = await import('../client/src/lib/api');
-const { configurationSchema } = await import('../client/src/lib/presets');
+const { configurationSchema, savedPresetSchema } = await import('../client/src/lib/presets');
 
 let records: any[] = [];
 let writes = 0;
@@ -101,3 +101,8 @@ assert.equal(configurationSchema.safeParse({ ...cpu, parameters: { cpu_percent: 
 assert.equal(configurationSchema.safeParse({ ...cpu, parameters: { cpu_percent: 25.5, duration_seconds: 10 } }).success, false);
 assert.ok(!calls.some(url => url.includes('/api/8009') || url.includes('/inject/')));
 console.log('PASS: four preset types, remount persistence, mock isolation, failed save/load, limits, red/green/unknown lights and monitor recovery; no injection calls.');
+
+const legacy = savedPresetSchema.parse({ name: "Old CPU", preset_id: "old", created_at: "2026-10-07T20:34:43.955000", failure_type: "cpu", parameters: { cpu_percent: 25, duration_seconds: 15 } });
+assert.equal(legacy.failure_type, "cpu_stress");
+assert.equal(legacy.preset_id, "old");
+console.log("PASS: old Ubuntu CPU preset is readable without changing its ID.");

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pymongo.errors import PyMongoError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from experiment_parameters import normalise_parameters
 
@@ -17,6 +17,7 @@ TYPE_MAP = {
     "cpu_stress": "cpu", "memory_stress": "memory",
     "network_latency": "latency", "packet_loss": "packet_loss",
 }
+LEGACY_TYPES = {"cpu": "cpu_stress", "memory": "memory_stress", "latency": "network_latency"}
 REQUIRED_PARAMETERS = {
     "cpu_stress": {"cpu_percent", "duration_seconds"},
     "memory_stress": {"memory_mb", "duration_seconds"},
@@ -31,6 +32,11 @@ class PresetInput(BaseModel):
     description: str = Field(default="", max_length=500)
     failure_type: Literal["cpu_stress", "memory_stress", "network_latency", "packet_loss"]
     parameters: dict
+
+    @field_validator("failure_type", mode="before")
+    @classmethod
+    def accept_legacy_type(cls, value):
+        return LEGACY_TYPES.get(value, value) if isinstance(value, str) else value
 
     @field_validator("name", mode="before")
     @classmethod
@@ -49,6 +55,8 @@ def register_preset_routes(app, get_db, serialise):
     def output(doc):
         # Mongo stores UTC dates at millisecond precision and may return them naive.
         result = serialise(doc)
+        # Adapt old records on read only; preserve their IDs and stored documents.
+        result["failure_type"] = LEGACY_TYPES.get(result.get("failure_type"), result.get("failure_type"))
         for field in ("created_at", "updated_at"):
             value = doc.get(field)
             if isinstance(value, datetime):
@@ -81,6 +89,8 @@ def register_preset_routes(app, get_db, serialise):
         }
         try:
             get_db()["saved_presets"].insert_one(doc)
+        except DuplicateKeyError:
+            raise HTTPException(409, "Preset name already exists; choose a different name")
         except PyMongoError:
             raise HTTPException(503, "Preset database is unavailable; preset was not confirmed saved")
         return output(doc)

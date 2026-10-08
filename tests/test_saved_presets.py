@@ -39,6 +39,26 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(len(self.client.get("/presets?limit=2&offset=2").json()), 2)
         self.assertEqual(metrics_api.get_db()["experiments"].count_documents({}), 0)
 
+    def test_legacy_preset_keeps_id_and_database_record(self):
+        legacy = {"name": "Old CPU preset", "failure_type": "cpu",
+                  "parameters": {"cpu_percent": 25, "duration_seconds": 15},
+                  "preset_id": "legacy-cpu", "created_at": "2026-10-07T20:34:43.955000"}
+        collection = metrics_api.get_db()["saved_presets"]
+        collection.insert_one(dict(legacy))
+        expected = {**legacy, "failure_type": "cpu_stress"}
+        self.assertEqual(self.client.get("/presets").json(), [expected])
+        self.assertEqual(self.client.get("/presets/legacy-cpu").json(), expected)
+        self.assertEqual(collection.find_one({"preset_id": "legacy-cpu"})["failure_type"], "cpu")
+        self.assertEqual(self.client.post("/presets", json={
+            "name": "Old client", "failure_type": "cpu", "parameters": legacy["parameters"]}).status_code, 201)
+
+    def test_existing_unique_name_index_reports_conflict(self):
+        metrics_api.get_db()["saved_presets"].create_index("name", unique=True)
+        payload = {"name": "Same name", "failure_type": "cpu_stress", "parameters": {"cpu_percent": 25, "duration_seconds": 15}}
+        self.assertEqual(self.client.post("/presets", json=payload).status_code, 201)
+        self.assertEqual(self.client.post("/presets", json=payload).status_code, 409)
+        self.assertEqual(len(self.client.get("/presets").json()), 1)
+
     def test_invalid_parameters_rejected_without_saving(self):
         for parameters in [
             {"cpu_percent": 66, "duration_seconds": 10},
