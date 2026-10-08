@@ -21,6 +21,7 @@ import Experiments from "@/pages/Experiments";
 import Logs from "@/pages/Logs";
 import Reports from "@/pages/Reports";
 import NotFound from "@/pages/not-found";
+import VMs from "@/pages/VMs";
 
 // sets up all the routes for the app
 function AppRouter() {
@@ -28,6 +29,7 @@ function AppRouter() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/experiments" component={Experiments} />
+      <Route path="/vms" component={VMs} />
       <Route path="/logs" component={Logs} />
       <Route path="/reports" component={Reports} />
       {/* if nothing matches show the 404 page */}

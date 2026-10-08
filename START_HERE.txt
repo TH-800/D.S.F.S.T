@@ -14,7 +14,10 @@ Keep .dsfst/, .env files, and Docker volumes. Do not delete
 
 From a terminal inside the project folder, run as your normal Ubuntu user:
 
-    bash install_dsfst.sh && bash start_dsfst.sh
+    bash setup_dsfst.sh
+
+This one command installs/configures the entire stack, enables automatic
+startup, starts dsfst.service, and checks actual API/metric readiness.
 
 For the prepared Windows VirtualBox template and a command that creates
 multiple ready-to-run VM clones, see VM_FACTORY_README.txt. Those clones start
@@ -25,21 +28,22 @@ session; cloning and booting a prepared template require no guest password.
 Do not add sudo before bash. Enter your VM user's administrator password
 when requested. After browser setup, you can control experiments from Windows
 through the dashboard or the gateway APIs described in VM_BROWSER_README.md.
-The installer does not start the application, but starts/enables Docker.
-The launcher starts the databases, database setup scripts, RunALL.py and
-metrics_writer.py. Do not also start RunALL.py or 02_project_setup.sh yourself.
+setup_dsfst.sh starts the application service. Its install_dsfst.sh helper
+installs/configures dependencies and enables Docker; start_dsfst.sh launches
+the databases, setup scripts, RunALL.py and metrics_writer.py. Do not also
+start RunALL.py or 02_project_setup.sh yourself.
 
-Later launches:
+Later service launches:
 
-    bash start_dsfst.sh
+    sudo systemctl start dsfst.service
 
-For a VM configured with `bash enable_dsfst_autostart.sh`, the app starts as
-dsfst.service at boot. Stop it from this project folder with:
+After setup_dsfst.sh, the app starts as dsfst.service at boot. Stop it from this project folder with:
 
     bash stop_dsfst.sh
 
 Start that service again with `sudo systemctl start dsfst.service`.
-Use Ctrl+C to stop a manual `bash start_dsfst.sh` session.
+For manual terminal operation, stop the service first, then run
+`bash start_dsfst.sh`. Use Ctrl+C to stop that manual session.
 
 WHAT CHANGED IN THIS REVISION
 -----------------------------
@@ -62,8 +66,8 @@ WHAT CHANGED IN THIS REVISION
    them on reruns. Existing database volumes retain their earlier passwords.
 
 4. Corrects experiment parameters, reset outcomes, network rule ownership,
-   live-data fallbacks, and report handling in the source. The current target
-   is the VM host, not an individual container or remote node.
+   live-data fallbacks, and report handling in the source. Each injection targets its VM host. The VMs page registers remote gateways
+   and launches a tracked batch of host experiments across selected VMs.
 
 5. Writes .dsfst/install-complete only after a successful installation.
    The launcher refuses to start after an incomplete installation.

@@ -46,11 +46,10 @@ On another Windows computer, install Oracle VirtualBox and prepare one Ubuntu
 x86-64 VM with a sudo-capable user, internet access, and AVX exposed to the VM.
 Copy this entire project folder into that VM. In its project folder, run:
 
-    bash install_dsfst.sh
-    bash enable_dsfst_autostart.sh
+    bash setup_dsfst.sh
 
 The one-time setup asks for that Ubuntu user's sudo password. Check that
-`sudo systemctl start dsfst.service` starts the app. From Windows Command
+`systemctl is-active dsfst.service` reports active. From Windows Command
 Prompt in this updated project folder, run these commands with your VM's name:
 
     enable_vm_browser.bat -VmName "My Ubuntu VM" -GuestUser myuser -PrepareTemplate

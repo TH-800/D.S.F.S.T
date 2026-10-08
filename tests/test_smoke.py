@@ -86,6 +86,25 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(upsert.call_args.args[2]["status"], "completed")
             self.machine.transition.assert_any_call("complete")
 
+    def test_reset_recovers_child_with_missing_mongo_start_status(self):
+        self.db["experiments"].find_one.return_value = {
+            "experiment_id": "exp-1", "failure_type": "cpu", "status": "created"}
+        self.machine.get_active_experiment.return_value = "exp-1"
+        with (patch.object(orchestrator, "_get_mongo", return_value=self.db),
+              patch.object(orchestrator, "_get_redis"),
+              patch.object(orchestrator, "StateMachine", return_value=self.machine),
+              patch.object(orchestrator, "_call_reset", return_value={"message": "stopped"}) as reset,
+              patch.object(orchestrator, "_upsert_experiment"),
+              patch.object(orchestrator, "_log_event")):
+            self.assertEqual(orchestrator.stop_experiment("exp-1")["status"], "completed")
+            reset.assert_called_once_with("cpu")
+            self.machine.get_active_experiment.return_value = "another-child"
+            reset.reset_mock()
+            with self.assertRaises(HTTPException) as error:
+                orchestrator.stop_experiment("exp-1")
+            self.assertEqual(error.exception.status_code, 409)
+            reset.assert_not_called()
+
     def test_start_passes_selected_parameters_to_injection(self):
         self.db["experiments"].find_one.return_value = {
             "experiment_id": "exp-1", "failure_type": "cpu", "status": "created",

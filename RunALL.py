@@ -36,7 +36,8 @@ UVICORN = "uvicorn"
 
 # how long to wait (seconds) between starting each service
 # gives each one time to bind its port before the next one starts
-STARTUP_DELAY = 1.5
+STARTUP_DELAY = 0.1
+BACKEND_START_TIMEOUT = 30.0
 
 # Service definitions
 # { "name": display name, "module": uvicorn app string, "port": int,
@@ -151,10 +152,12 @@ def port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def wait_for_port(port: int, timeout: float = 10.0) -> bool:
+def wait_for_port(port: int, timeout: float = 30.0, proc=None) -> bool:
     #Blocks this until a port is accepting connections or the timeout is reached
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc is not None and proc.poll() is not None:
+            return False
         if port_in_use(port):
             return True
         time.sleep(0.3)
@@ -214,13 +217,18 @@ def start_fastapi_service(service: dict) -> subprocess.Popen | None:
         t = threading.Thread(target=stream_output, args=(name, proc), daemon=True)
         t.start()
 
-        # wait up to 8 s for the port to come up
-        if wait_for_port(port, timeout=8.0):
+        # Allow slower VM imports; stop waiting immediately if the child exits.
+        if wait_for_port(port, timeout=BACKEND_START_TIMEOUT, proc=proc):
             ok(f"{BOLD}{name}{RESET}{GREEN} — listening on http://127.0.0.1:{port}{RESET}")
             return proc
         else:
             err(f"{name} — did not bind to port {port} in time")
             proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
             return None
 
     except FileNotFoundError:
@@ -271,13 +279,18 @@ def start_frontend() -> subprocess.Popen | None:
         t.start()
 
         # Vite can take a few seconds to compile #vite is also the frontend display i think 
-        if wait_for_port(3000, timeout=30.0):
+        if wait_for_port(3000, timeout=30.0, proc=proc):
             ok(f"{BOLD}Frontend{RESET}{GREEN} — http://localhost:3000/#/{RESET}")
             return proc
         else:
-            # Vite sometimes binds on a different port — warn but keep the process
-            warn("Frontend: port 3000 didn't respond in 30 s — Vite may have chosen another port")
-            return proc
+            err("Frontend did not become ready on port 3000")
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            return None
 
     except FileNotFoundError:
         err("npm not found — install Node.js to run the frontend")
@@ -306,6 +319,7 @@ def shutdown_all():
         except subprocess.TimeoutExpired:
             warn(f"{name} did not exit in time — sending SIGKILL")
             proc.kill()
+            proc.wait(timeout=5)
 
     ok("All services stopped.")
 
@@ -361,8 +375,11 @@ def main():
 
     for service in SERVICES:
         proc = start_fastapi_service(service)
-        if proc:
-            running_processes.append((service["name"], proc))
+        if proc is None:
+            err("Required backend failed; stopping the partial startup.")
+            shutdown_all()
+            raise SystemExit(1)
+        running_processes.append((service["name"], proc))
         time.sleep(STARTUP_DELAY)
 
     #  start frontend 
@@ -371,12 +388,11 @@ def main():
     print()
 
     frontend_proc = start_frontend()
-    if frontend_proc:
-        running_processes.append(("Frontend", frontend_proc))
-
-    if not running_processes:
-        err("No services started successfully — exiting.")
-        sys.exit(1)
+    if frontend_proc is None:
+        err("Required frontend failed; stopping the partial startup.")
+        shutdown_all()
+        raise SystemExit(1)
+    running_processes.append(("Frontend", frontend_proc))
 
     print_summary()
 
@@ -387,8 +403,8 @@ def main():
             for name, proc in running_processes:
                 if proc.poll() is not None:
                     warn(f"{name} exited unexpectedly (return code {proc.returncode})")
-                    running_processes.remove((name, proc))
-                    break
+                    shutdown_all()
+                    raise SystemExit(1)
             time.sleep(3)
     except KeyboardInterrupt:
         shutdown_all()

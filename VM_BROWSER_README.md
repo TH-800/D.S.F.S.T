@@ -12,8 +12,7 @@ to this computer and its VMs.
 ## Set up an existing Ubuntu VM once
 
 Install VirtualBox Guest Additions in Ubuntu. Copy this whole updated project
-into the VM, then run `bash install_dsfst.sh`,
-`bash enable_dsfst_autostart.sh`, and `sudo systemctl start dsfst.service`.
+into the VM, then run `bash setup_dsfst.sh` as your normal Ubuntu user.
 For an already installed VM, the Windows helper copies the required browser
 files, checks their types, and rebuilds the dashboard automatically.
 

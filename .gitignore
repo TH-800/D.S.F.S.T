@@ -23,3 +23,9 @@ Thumbs.db
 # Accidental local files
 FETCH_HEAD
 vm-addresses.json
+.test-deps/
+
+# Local verification outputs and machine-specific endpoint links
+FULL_RUN_OUTPUT.txt
+EXPOSED_API_LINKS.txt
+screenshots/

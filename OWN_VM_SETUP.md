@@ -70,18 +70,22 @@ The guest project path must have no spaces and must remain at the installed
 location. The repository contains source code; Ubuntu, database images,
 dependencies and VM passwords are not bundled.
 
+Keep the Windows and Ubuntu copies on the same project revision. The branch
+includes `setup_dsfst.sh`, `multi_vm.py`, `vm_registry.py`, `vm_metrics.py`
+and `MULTI_VM_README.txt`. See [DSFST_COMMANDS.txt](DSFST_COMMANDS.txt) for a
+plain-text command reference.
+
 ## 3. Install and enable startup inside Ubuntu
 
 From the guest project folder, run these commands **as your normal user**:
 
 ```bash
-bash install_dsfst.sh
-bash enable_dsfst_autostart.sh
-sudo systemctl start dsfst.service
+bash setup_dsfst.sh
 ```
 
-Wait for each command to succeed before running the next. Do not prefix the
-installer or autostart installer with `sudo`; they request it when needed.
+The setup installs/configures the entire stack, enables startup, starts the
+service and waits for readiness. Do not prefix it with `sudo`; it requests
+sudo when needed.
 The initial setup needs your Ubuntu administrator password.
 
 The installer installs Python and frontend dependencies, Node.js, Docker
@@ -235,3 +239,9 @@ do not ask for the guest password.
 After updating the template, prepare a new snapshot name and select it in
 both commands. See [VM_FACTORY_README.txt](VM_FACTORY_README.txt) for details.
 See [VALIDATION.txt](VALIDATION.txt) for the checks performed and their scope.
+
+## Control several VMs
+
+Open the VMs page on your chosen coordinator, register each other VM using its
+private gateway URL, select metrics by VM, and launch/stop tracked batches.
+See [MULTI_VM_README.txt](MULTI_VM_README.txt) for API examples and failure handling.
