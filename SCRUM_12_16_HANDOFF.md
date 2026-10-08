@@ -21,16 +21,29 @@ git log -1 --oneline
 
 A GitHub push does not update either of your local copies automatically. If Git says this is not a repository, the folder may be an extracted ZIP. If there are local changes, preserve them before switching branches. Do not use reset/clean or copy a ZIP over your working folder.
 
-## Get the review branch
+## Import the review branch
 
-For an existing clean checkout:
+GitHub's integration rejected publishing with HTTP 403 (Resource not accessible by integration). No remote branch or PR was created. The supplied `DSFST_SCRUM_12_16.bundle` contains the tested commits. The bundle is incremental, so fetch the existing repository history first.
 
-```text
+For an existing clean Windows checkout, copy the bundle somewhere outside the project and replace the example path below with its actual download path:
+
+```powershell
 git fetch origin
-git switch --track origin/momin-scrum-12-16-integration
+git fetch "C:\Users\YOUR_WINDOWS_USER\Downloads\DSFST_SCRUM_12_16.bundle" momin-scrum-12-16-integration
+git switch -c momin-scrum-12-16-integration FETCH_HEAD
 ```
 
-If that local branch already exists, use `git switch momin-scrum-12-16-integration` followed by `git pull --ff-only`. If you have local work on a different branch, resolve that first. Keep the installed Ubuntu project at its existing path; its systemd service points there.
+For Ubuntu, copy the same bundle into Downloads and, inside the installed project folder, use:
+
+```bash
+git fetch origin
+git fetch "$HOME/Downloads/DSFST_SCRUM_12_16.bundle" momin-scrum-12-16-integration
+git switch -c momin-scrum-12-16-integration FETCH_HEAD
+```
+
+If that local branch name already exists, stop and inspect it rather than overwriting it. If you have local work, preserve it before switching. Keep the installed Ubuntu project at its existing path; its systemd service points there.
+
+After local verification, you can publish the branch with your own GitHub credentials using `git push -u origin momin-scrum-12-16-integration`, then open a pull request targeting `main-based-dev-branch`. Nothing here changes Jira status or merges into main.
 
 ## Update an already prepared Ubuntu VM
 
@@ -67,7 +80,7 @@ From Windows, use the prepared VM's dashboard URL `http://<VM-IP>:3000/#/` from 
 - TypeScript check and production build.
 - Reusable indicator rendering and accessible labels.
 - React interaction checks in jsdom with simulated API responses: four preset types, remount persistence, mock/live separation, failed save/load, parameter bounds, red/green/unknown lights and recovery. No injection calls.
-- Python smoke and preset API tests with an in-memory Mongo double, including database failures, invalid settings and origin checks.
+- 43 Python smoke and preset API tests, including an in-memory Mongo double, including database failures, invalid settings and origin checks.
 - Actual built Express gateway to actual FastAPI save/list/load endpoints and monitor, with an in-memory Mongo double. No experiments created.
 
 Commands:
