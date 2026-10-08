@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Cpu, MemoryStick, Wifi, Clock, Activity, Server } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useAppState } from "@/lib/store";
+import ServiceStatusIndicator from "@/components/ServiceStatusIndicator";
 import {
   getMockCpuData,
   getMockMemoryData,
@@ -489,6 +490,19 @@ export default function Dashboard() {
                     <p className="font-medium">{statusData.summary.injection_services_online}</p>
                   </div>
                 </div>
+                {/* SCRUM-12 consumes existing monitor results; no new polling here.
+                    Mock results are labeled so they cannot be mistaken for live checks. */}
+                <ul className="space-y-2 border-t pt-3" aria-label="Backend service reachability">
+                  {Object.values(statusData.services).map((service) => (
+                    <li key={service.port}>
+                      <ServiceStatusIndicator
+                        label={`${service.script} (${service.port})`}
+                        online={service.online}
+                        mock={!isLiveMode}
+                      />
+                    </li>
+                  ))}
+                </ul>
               </div>
             </CardContent>
           </Card>
