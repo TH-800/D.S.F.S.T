@@ -555,7 +555,9 @@ export async function startExperiment(
     body: JSON.stringify(params ? { parameters: params } : {}),
   });
   await requireOk(res, "Could not start experiment");
-  return res.json();
+  const result = await res.json();
+  if (result.status !== "running") throw new Error("The backend did not confirm the experiment started. Check its state before retrying.");
+  return result;
 }
 
 // tells the orchestrator to stop a running experiment
@@ -564,7 +566,9 @@ export async function stopExperiment(id: string): Promise<StopExperimentResponse
     method: "POST",
   });
   await requireOk(res, "Could not stop experiment");
-  return res.json();
+  const result = await res.json();
+  if (result.status !== "completed") throw new Error("The backend did not confirm the reset. Check the experiment state.");
+  return result;
 }
 
 // emergency stop - kills ALL running injections immediately

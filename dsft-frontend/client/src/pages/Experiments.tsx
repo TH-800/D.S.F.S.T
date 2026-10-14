@@ -66,6 +66,9 @@ export default function Experiments() {
   const [memoryMb, setMemoryMb] = useState(512);
   const [memoryDuration, setMemoryDuration] = useState(30);
   const [isStarting, setIsStarting] = useState(false);
+  const startPending = useRef(false);
+  const stopPending = useRef(new Set<string>());
+  const [stoppingIds, setStoppingIds] = useState<string[]>([]);
 
   const configuration: PresetConfiguration = injectionType === "cpu"
     ? { failure_type: "cpu_stress", parameters: { cpu_percent: cpuPercent, duration_seconds: cpuDuration } }
@@ -160,10 +163,12 @@ export default function Experiments() {
 
   // starts a new experiment based on the current form values
   async function handleStart() {
+    if (startPending.current) return;
     if (!configurationSchema.safeParse(configuration).success) {
       toast({ title: "Check experiment settings", description: "Use whole numbers within the displayed limits.", variant: "destructive" });
       return;
     }
+    startPending.current = true;
     setIsStarting(true);
 
     // build the experiment object
@@ -219,6 +224,7 @@ export default function Experiments() {
           message: `Experiment failed to start: ${message}`,
         });
         toast({ title: "Experiment failed to start", description: message, variant: "destructive" });
+        startPending.current = false;
         setIsStarting(false);
         return;
       }
@@ -252,43 +258,52 @@ export default function Experiments() {
       autoCompleteTimers.current[exp.id] = timerId;
     }
 
-    toast({ title: "Experiment started", description: name });
+    toast({ title: isLiveMode ? "Experiment started" : "Mock experiment started", description: isLiveMode ? name : `${name}. Simulated only; no VM was changed.` });
+    startPending.current = false;
     setIsStarting(false);
   }
 
   // stops/resets a running experiment
-  // tries the orchestrator first, then falls back to direct reset calls
+  // waits for backend confirmation before displaying a successful reset
   async function handleStop(exp: Experiment) {
-    const now = new Date().toISOString();
+    if (stopPending.current.has(exp.id)) return;
+    stopPending.current.add(exp.id);
+    setStoppingIds(Array.from(stopPending.current));
+    try {
+      const now = new Date().toISOString();
 
-    // A live stop is only successful after the orchestrator confirms its reset.
-    if (isLiveMode) {
-      try {
-        await stopExperiment(exp.id);
-        refreshFromBackend();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        toast({ title: "Reset failed", description: msg, variant: "destructive" });
-        return;
+      // A live stop is only successful after the orchestrator confirms its reset.
+      if (isLiveMode) {
+        try {
+          await stopExperiment(exp.id);
+          refreshFromBackend();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          toast({ title: "Reset failed", description: msg, variant: "destructive" });
+          return;
+        }
       }
+
+      // if there was an auto-complete timer running for this experiment, cancel it
+      // since the user manually stopped it before the duration ran out
+      if (autoCompleteTimers.current[exp.id]) {
+        clearTimeout(autoCompleteTimers.current[exp.id]);
+        delete autoCompleteTimers.current[exp.id];
+      }
+
+      // update the experiment status in our state
+      updateExperiment(exp.id, { status: "stopped", stoppedAt: now });
+      addLog({
+        timestamp: now,
+        eventType: "injection_stopped",
+        message: `Stopped experiment: ${exp.name}`,
+      });
+
+      toast({ title: isLiveMode ? "Experiment stopped" : "Mock experiment stopped", description: isLiveMode ? exp.name : `${exp.name}. Simulated only.` });
+    } finally {
+      stopPending.current.delete(exp.id);
+      setStoppingIds(Array.from(stopPending.current));
     }
-
-    // if there was an auto-complete timer running for this experiment, cancel it
-    // since the user manually stopped it before the duration ran out
-    if (autoCompleteTimers.current[exp.id]) {
-      clearTimeout(autoCompleteTimers.current[exp.id]);
-      delete autoCompleteTimers.current[exp.id];
-    }
-
-    // update the experiment status in our state
-    updateExperiment(exp.id, { status: "stopped", stoppedAt: now });
-    addLog({
-      timestamp: now,
-      eventType: "injection_stopped",
-      message: `Stopped experiment: ${exp.name}`,
-    });
-
-    toast({ title: "Experiment stopped", description: exp.name });
   }
 
   // emergency stop - kills ALL running injections immediately
@@ -601,11 +616,12 @@ export default function Experiments() {
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={stoppingIds.includes(exp.id)}
                           onClick={() => handleStop(exp)}
                           data-testid={`button-stop-${exp.id}`}
                         >
                           <Square className="h-3 w-3 mr-1" />
-                          Stop
+                          {stoppingIds.includes(exp.id) ? "Stopping..." : "Stop"}
                         </Button>
                       )}
                     </div>
