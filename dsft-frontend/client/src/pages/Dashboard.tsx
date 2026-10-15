@@ -10,23 +10,21 @@ import { Label } from "@/components/ui/label";
 import { Cpu, MemoryStick, Wifi, Clock, Activity, Server } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useAppState } from "@/lib/store";
+import ServiceStatusIndicator from "@/components/ServiceStatusIndicator";
 import {
   getMockCpuData,
   getMockMemoryData,
   getMockNetworkData,
-  getMockHealthData,
   getMockStatusData,
   fetchCpuData,
   fetchMemoryData,
   fetchNetworkData,
-  fetchHealthData,
   fetchStatusData,
   fetchLatestMetrics,
   fetchOrchestratorState,
   type CpuData,
   type MemoryData,
   type NetworkData,
-  type HealthData,
   type StatusData,
   type OrchestratorState,
 } from "@/lib/api";
@@ -91,7 +89,6 @@ export default function Dashboard() {
   const [cpuData, setCpuData] = useState<CpuData | null>(null);
   const [memData, setMemData] = useState<MemoryData | null>(null);
   const [netData, setNetData] = useState<NetworkData | null>(null);
-  const [healthData, setHealthData] = useState<HealthData | null>(null);
   const [statusData, setStatusData] = useState<StatusData | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -111,12 +108,11 @@ export default function Dashboard() {
           fetchCpuData(),
           fetchMemoryData(),
           fetchNetworkData(),
-          fetchHealthData(),
           fetchStatusData(),
           fetchOrchestratorState(),
         ]);
 
-        const [cpuResult, memResult, netResult, healthResult, statusResult, orchResult] = results;
+        const [cpuResult, memResult, netResult, statusResult, orchResult] = results;
 
         // if the direct monitoring endpoints (ports 8001-8003) failed, try MetricsAPI as backup
         // the MetricsAPI reads the same data from InfluxDB so it should be close enough
@@ -183,8 +179,7 @@ export default function Dashboard() {
           setNetData(netResult.value);
         }
 
-        // health and status from the monitor (port 8000)
-        setHealthData(healthResult.status === "fulfilled" ? healthResult.value : null);
+        // service details from the monitor (port 8000)
         setStatusData(statusResult.status === "fulfilled" ? statusResult.value : null);
 
         // orchestrator state (port 8009) - its ok if this fails, just means orchestrator isnt up
@@ -198,7 +193,7 @@ export default function Dashboard() {
             message: "Some direct endpoints were down, used MetricsAPI as fallback",
           });
         }
-        if (healthResult.status === "rejected" || statusResult.status === "rejected" || orchResult.status === "rejected") {
+        if (statusResult.status === "rejected" || orchResult.status === "rejected") {
           setError("Some live services are unavailable. Check the service status and experiment state.");
         }
       } else {
@@ -206,7 +201,6 @@ export default function Dashboard() {
         setCpuData(getMockCpuData());
         setMemData(getMockMemoryData());
         setNetData(getMockNetworkData());
-        setHealthData(getMockHealthData());
         setStatusData(getMockStatusData());
         setOrchestratorState(null);
       }
@@ -224,7 +218,6 @@ export default function Dashboard() {
       setCpuData(null);
       setMemData(null);
       setNetData(null);
-      setHealthData(null);
       setStatusData(null);
       setOrchestratorState(null);
       setLastUpdate(new Date().toISOString());
@@ -269,7 +262,8 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <ServiceStatusIndicator isLiveMode={isLiveMode} />
           {/* toggle between mock and live data */}
           <div className="flex items-center gap-2">
             <Label htmlFor="live-toggle" className="text-sm">

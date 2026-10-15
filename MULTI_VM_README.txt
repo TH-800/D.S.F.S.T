@@ -25,6 +25,17 @@ and select the VMs navigation page. This page uses live backend services.
    a registered VM belongs to a known active batch.
    Removing a registration does not delete or power off the VirtualBox VM.
 
+The dashboard's monitor indicator checks /api/8000/health in Live API mode.
+It shows checking, online or offline, with an eight-second request timeout
+and another check five seconds after the previous request finishes. Online
+means the monitor responded with its expected health result. Service details
+still come from /status. Mock mode labels the monitor as simulated and sends
+no health requests. Changing modes clears the previous connection result.
+
+VM controls ignore repeated submissions while an action is pending. The
+batch list includes up to 50 active runs alongside the 20 most recent runs,
+so recent completed experiments do not hide an older active batch.
+
 ENDPOINTS
 ---------
 Paths below are relative to the coordinator's dashboard address.

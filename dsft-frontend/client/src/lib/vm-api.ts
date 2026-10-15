@@ -53,8 +53,15 @@ export const removeVM = (id: string) =>
   request<{removed: boolean}>("/api/8009/vms/" + encodeURIComponent(id), "DELETE");
 export const fetchVmMetrics = (id: string) =>
   request<ScopedMetrics>("/api/8008/vms/" + encodeURIComponent(id) + "/metrics/latest");
-export const fetchVmBatches = () =>
-  request<ExperimentBatch[]>("/api/8009/experiment-batches?limit=20");
+export async function fetchVmBatches(): Promise<ExperimentBatch[]> {
+  const [active, recent] = await Promise.all([
+    request<ExperimentBatch[]>("/api/8009/experiment-batches?active_only=true&limit=50"),
+    request<ExperimentBatch[]>("/api/8009/experiment-batches?limit=20"),
+  ]);
+  // Keep unfinished runs visible even after newer completed runs fill the history.
+  const activeIds = new Set(active.map(batch => batch.batch_id));
+  return active.concat(recent.filter(batch => !activeIds.has(batch.batch_id)));
+}
 export const launchVmExperiment = (body: {
   name: string;
   failure_type: "cpu" | "memory" | "latency" | "packet_loss";

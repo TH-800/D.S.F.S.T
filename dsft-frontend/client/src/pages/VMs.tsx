@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ export default function VMs() {
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [busy, setBusy] = useState(false);
+  const actionPending = useRef(false);
 
   const refresh = useCallback(async () => {
     const [known, runs] = await Promise.allSettled([fetchVMs(), fetchVmBatches()]);
@@ -77,11 +78,16 @@ export default function VMs() {
   }, [metricVm]);
 
   async function action(operation: () => Promise<unknown>) {
+    if (actionPending.current) return;
+    actionPending.current = true;
     setBusy(true);
     setError("");
     try { await operation(); }
     catch (error) { setError(message(error)); }
-    finally { await refresh(); setBusy(false); }
+    finally {
+      try { await refresh(); }
+      finally { actionPending.current = false; setBusy(false); }
+    }
   }
   function add(event: FormEvent) {
     event.preventDefault();
