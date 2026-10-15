@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 import subprocess
 from datetime import datetime
 import os
+from process_control import stop_owned_process
 app = FastAPI()
 
 app.add_middleware(
@@ -86,7 +87,7 @@ def inject_memory_stress(memory_mb: int, duration: int):
 
     # Start stress test
     try:
-        memory_process = subprocess.Popen(command)#injects the command and stores the process
+        memory_process = subprocess.Popen(command, start_new_session=True)
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
     except Exception as error:
@@ -116,14 +117,9 @@ def reset_memory_stress():
     
     global memory_process
 
-    if memory_process and memory_process.poll() is None:
-        memory_process.terminate()
-        try:
-            memory_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            memory_process.kill()
-            memory_process.wait(timeout=3)
-        memory_process = None
-        return {"message": "Memory stress stopped"}
-
-    return {"message": "No memory stress running"}
+    try:
+        stopped = stop_owned_process(memory_process)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        raise HTTPException(502, "Memory reset could not confirm stopped workers") from error
+    memory_process = None
+    return {"message": "Memory stress stopped" if stopped else "No memory stress running"}

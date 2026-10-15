@@ -13,6 +13,7 @@ import subprocess # import for running external commands via python
 # so we can pass shell commands to the console 
 import os # import for working with system level operations 
 from datetime import datetime
+from process_control import stop_owned_process
 
 app = FastAPI()
 
@@ -82,7 +83,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     # Start stress test
     try:
-        cpu_process = subprocess.Popen(command)#injects the command and stores the process
+        cpu_process = subprocess.Popen(command, start_new_session=True)
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
     except Exception as error:
@@ -111,13 +112,9 @@ def reset_cpu_stress():
     
     global cpu_process
 
-    if cpu_process and cpu_process.poll() is None:
-        cpu_process.kill()  # SIGKILL — terminate() can leave stress-ng running, kill() doesn't SO DONT USE KILL()
-        try:
-            cpu_process.wait(timeout=3)
-        except Exception:
-            pass  # if it times out, it'll be cleaned up by the OS and if does not i dont know then
-        cpu_process = None
-        return {"message": "CPU stress stopped"}
-
-    return {"message": "No CPU stress running"}
+    try:
+        stopped = stop_owned_process(cpu_process)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        raise HTTPException(502, "CPU reset could not confirm stopped workers") from error
+    cpu_process = None
+    return {"message": "CPU stress stopped" if stopped else "No CPU stress running"}

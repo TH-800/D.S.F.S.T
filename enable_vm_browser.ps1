@@ -111,6 +111,7 @@ else:
         'dsft-frontend/server/index.ts', 'dsft-frontend/server/api-proxy.ts', 'dsft-frontend/client/src/lib/api.ts',
         'vm_registry.py', 'vm_metrics.py', 'multi_vm.py', 'metrics_api.py', 'experiment_orchestrator.py',
         'InjectionScripts/CPUStressInjection.py',
+        'InjectionScripts/MemoryStressInjection.py', 'InjectionScripts/process_control.py',
         'database/mongo_setup.py', 'setup_dsfst.sh', 'dsfst_readiness.py', 'enable_dsfst_autostart.sh',
         'dsft-frontend/client/src/App.tsx', 'dsft-frontend/client/src/components/Sidebar.tsx',
         'dsft-frontend/client/src/pages/VMs.tsx', 'dsft-frontend/client/src/lib/vm-api.ts',

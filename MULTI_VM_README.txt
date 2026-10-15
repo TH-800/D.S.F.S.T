@@ -20,6 +20,9 @@ and select the VMs navigation page. This page uses live backend services.
    One request preflights all targets and creates a tracked batch. It creates
    a child experiment on each VM and starts those children concurrently.
    CPU/memory experiments have a duration. Latency and packet loss need a stop.
+   CPU load is applied to each VM core using the requested percentage. CPU
+   and memory stress workers run in their own process group. A reset waits
+   for those workers to stop before confirming success.
 
 4. Inspect the batch's per-VM state and report links. Stop a batch or all active
    batches from this page. A failed launch attempts to reset every child it
