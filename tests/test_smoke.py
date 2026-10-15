@@ -24,6 +24,7 @@ import BaseNetworkInfo as network_info
 import experiment_orchestrator as orchestrator
 import metrics_writer
 import network_rules
+import CPUStressInjection as cpu_injection
 
 
 class ParameterTests(unittest.TestCase):
@@ -215,6 +216,17 @@ class NetworkRuleTests(unittest.TestCase):
 
 
 class MonitoringTests(unittest.TestCase):
+    def test_cpu_injection_honors_requested_load_on_single_and_multi_core_vms(self):
+        for cores in (1, 4):
+            with self.subTest(cores=cores), patch.object(cpu_injection, "cpu_process", None), \
+                 patch.object(cpu_injection.os, "cpu_count", return_value=cores), \
+                 patch.object(cpu_injection.subprocess, "Popen") as start:
+                result = cpu_injection.inject_cpu_stress(10, 15)
+                command = start.call_args.args[0]
+                self.assertEqual(command[command.index("--cpu") + 1], str(cores))
+                self.assertEqual(command[command.index("--cpu-load") + 1], "10")
+                self.assertEqual(result["cpu_requested_percent"], 10)
+
     def test_throughput_uses_counters_without_downloading(self):
         network_info._throughput_sample = None
         network_info._throughput_kbps = 0

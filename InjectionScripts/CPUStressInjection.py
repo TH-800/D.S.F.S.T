@@ -65,8 +65,8 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     cpu_cores = os.cpu_count() or 1 #small fix so incase somehow there are like 0 cpu cores it defaults 1 without breaking anything i hope
     
-    # gets the number of cpu cores and divides them into a percentage and then finds the number of cpus to test out
-    workers = max(1, round(cpu_cores * (cpu_percent / 100)))
+    # Apply the requested load to each core, including single-core VMs.
+    workers = cpu_cores
 
     # commands stored in a list string variable so they can be executed in the
     # shell when the script runs which then runs the requested CPU stress
@@ -75,6 +75,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
         "stress-ng", # stress test a system component which also needs the apt install
         "--cpu",
         str(workers), # str to convert from a number to a string so it can be used in the shell
+        "--cpu-load", str(cpu_percent),
         "--timeout", # how long the cpu is going to be stressed for 
         f"{duration}s" # duration time 
     ]
