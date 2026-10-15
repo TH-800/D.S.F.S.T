@@ -23,7 +23,7 @@ function message(error: unknown) {
   return error instanceof Error ? error.message : "The request failed";
 }
 function value(value: number | undefined, suffix: string) {
-  return value === undefined ? "Unavailable" : value.toFixed(1) + suffix;
+  return typeof value !== "number" || !Number.isFinite(value) ? "Unavailable" : value.toFixed(1) + suffix;
 }
 
 export default function VMs() {
@@ -62,19 +62,23 @@ export default function VMs() {
   }, [refresh]);
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let request: AbortController;
     setMetrics(null);
     setMetricsError("");
     const poll = async () => {
+      request = new AbortController();
       try {
-        const data = await fetchVmMetrics(metricVm);
+        const data = await fetchVmMetrics(metricVm, request.signal);
         if (!cancelled) { setMetrics(data); setMetricsError(""); }
       } catch (error) {
         if (!cancelled) { setMetrics(null); setMetricsError(message(error)); }
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 5000);
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 5000);
-    return () => { cancelled = true; clearInterval(timer); };
+    return () => { cancelled = true; clearTimeout(timer); request?.abort(); };
   }, [metricVm]);
 
   async function action(operation: () => Promise<unknown>) {
@@ -145,9 +149,9 @@ export default function VMs() {
     </CardContent></Card>
     <Card><CardHeader><CardTitle>Launch on selected VMs</CardTitle></CardHeader><CardContent>
       <form onSubmit={launch} className="space-y-4">
-        <fieldset className="flex flex-wrap gap-4"><legend className="text-sm mb-2">Targets</legend>
+        <fieldset disabled={busy} className="flex flex-wrap gap-4"><legend className="text-sm mb-2">Targets (up to 16)</legend>
           {vms.map(vm => <label key={vm.vm_id} className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={selected.includes(vm.vm_id)} onChange={e => setSelected(old => e.target.checked ? [...old, vm.vm_id] : old.filter(id => id !== vm.vm_id))} />{vm.name}
+            <input type="checkbox" checked={selected.includes(vm.vm_id)} disabled={!selected.includes(vm.vm_id) && selected.length >= 16} onChange={e => setSelected(old => e.target.checked ? (old.length < 16 ? [...old, vm.vm_id] : old) : old.filter(id => id !== vm.vm_id))} />{vm.name}
           </label>)}
         </fieldset>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

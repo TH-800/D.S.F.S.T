@@ -121,7 +121,7 @@ def vm_request(vm, port, path, method="GET", payload=None):
             if not isinstance(data, dict):
                 raise ValueError("Expected JSON object")
             return data
-    except requests.RequestException as error:
-        raise HTTPException(503, f"{vm['name']}: VM API unavailable") from error
     except ValueError as error:
         raise HTTPException(502, f"{vm['name']}: invalid VM response") from error
+    except requests.RequestException as error:
+        raise HTTPException(503, f"{vm['name']}: VM API unavailable") from error

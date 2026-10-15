@@ -4,6 +4,7 @@ import sys
 import threading
 import unittest
 import uuid
+import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -43,13 +44,14 @@ class FakeAgents:
             return {"state": "running" if active or vm_id in self.busy else "idle",
                     "active_experiment_id": active}
         if path == "/metrics/latest":
-            return {"cpu": {"cpu_usage_percent": 77, "timestamp": datetime.now(timezone.utc).isoformat()},
-                    "memory": {"memory_percent": 32, "memory_used_mb": 900, "timestamp": "now"},
+            timestamp = datetime.now(timezone.utc).isoformat()
+            return {"cpu": {"cpu_usage_percent": 77, "timestamp": timestamp},
+                    "memory": {"memory_percent": 32, "memory_used_mb": 900, "timestamp": timestamp},
                     "network": {"latency_ms": 13, "packet_loss_percent": 0,
-                                "throughput_kbps": 20, "timestamp": "now"}}
+                                "throughput_kbps": 20, "timestamp": timestamp}}
         if path.startswith("/metrics/history"):
             return {"measurement": "cpu", "minutes": 15,
-                    "series": {"cpu_usage_percent": [{"timestamp": "now", "value": 77}]}}
+                    "series": {"cpu_usage_percent": [{"timestamp": datetime.now(timezone.utc).isoformat(), "value": 77}]}}
         if method == "POST" and path == "/experiments":
             key = str(uuid.uuid4())
             records[key] = {"experiment_id": key, "status": "created", "parameters": payload["parameters"]}
@@ -129,9 +131,7 @@ class MultiVMTests(unittest.TestCase):
         with patch.object(metrics_api, "get_influx", return_value=None):
             local = self.metrics.get("/metrics/latest?vm_id=local")
         remote = self.metrics.get("/vms/" + self.remote + "/metrics/latest")
-        self.assertEqual(local.status_code, 200)
-        self.assertEqual(local.json()["vm_id"], "local")
-        self.assertIsNone(local.json()["cpu"])
+        self.assertEqual(local.status_code, 503)
         self.assertEqual(remote.json()["vm_id"], self.remote)
         self.assertEqual(remote.json()["cpu"]["cpu_usage_percent"], 77)
         self.assertEqual(self.metrics.get("/metrics/latest?vm_id=missing").status_code, 404)
@@ -144,6 +144,63 @@ class MultiVMTests(unittest.TestCase):
         self.assertEqual(response.json()["series"]["cpu_usage_percent"][0]["value"], 77)
         self.assertEqual(self.metrics.get("/metrics/history?measurement=not-a-metric").status_code, 422)
         self.assertEqual(self.metrics.get("/metrics/history?minutes=0").status_code, 422)
+
+    def test_invalid_remote_metrics_are_reported_as_bad_gateway(self):
+        good = self.agents.request({"vm_id": self.remote}, 8008, "/metrics/latest")
+        for bad in ({**good, "cpu": "not a measurement"},
+                    {**good, "cpu": {"cpu_usage_percent": "high", "timestamp": "now"}},
+                    {**good, "memory": {}},
+                    {**good, "cpu": {"cpu_usage_percent": True, "timestamp": good["cpu"]["timestamp"]}},
+                    {**good, "cpu": {"cpu_usage_percent": float("nan"), "timestamp": good["cpu"]["timestamp"]}},
+                    {**good, "cpu": {"cpu_usage_percent": 10 ** 400, "timestamp": good["cpu"]["timestamp"]}},
+                    {"cpu": None, "memory": None}):
+            with self.subTest(response=bad), patch.object(vm_metrics, "vm_request", return_value=bad):
+                self.assertEqual(self.metrics.get(f"/vms/{self.remote}/metrics/latest").status_code, 502)
+
+    def test_available_storage_without_samples_keeps_the_local_vm_identity(self):
+        influx = MagicMock()
+        influx.query_api.return_value.query.return_value = []
+        with patch.object(metrics_api, "get_influx", return_value=influx):
+            response = self.metrics.get("/metrics/latest?vm_id=local")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["vm_id"], "local")
+        self.assertIsNone(response.json()["cpu"])
+
+    def test_multiple_remote_vms_keep_their_readings_separate(self):
+        other = self.client.post("/vms", json={"name": "Second clone", "base_url": "http://192.168.56.12:3000"}).json()["vm_id"]
+        original = self.agents.request
+        def request(vm, port, path, method="GET", payload=None):
+            data = original(vm, port, path, method, payload)
+            data["cpu"]["cpu_usage_percent"] = 11 if vm["vm_id"] == self.remote else 42
+            return data
+        with patch.object(vm_metrics, "vm_request", side_effect=request):
+            for vm_id, expected in ((self.remote, 11), (other, 42), (self.remote, 11)):
+                response = self.metrics.get("/metrics/latest?vm_id=" + vm_id)
+                self.assertEqual(response.json()["vm_id"], vm_id)
+                self.assertEqual(response.json()["cpu"]["cpu_usage_percent"], expected)
+
+    def test_remote_history_must_match_requested_measurement_and_window(self):
+        good = self.agents.request({"vm_id": self.remote}, 8008, "/metrics/history")
+        for bad in ({**good, "measurement": "memory"}, {**good, "minutes": 60},
+                    {**good, "series": {"cpu_usage_percent": "bad points"}},
+                    {**good, "series": {"cpu_usage_percent": [{"timestamp": "now", "value": "high"}]}},
+                    {}):
+            with self.subTest(response=bad), patch.object(vm_metrics, "vm_request", return_value=bad):
+                self.assertEqual(self.metrics.get(f"/vms/{self.remote}/metrics/history").status_code, 502)
+
+    def test_bad_child_identity_rolls_back_other_started_children(self):
+        original = self.agents.request
+        for bad_id in (None, 123, [], "invalid-id"):
+            def request(vm, port, path, method="GET", payload=None):
+                if vm["vm_id"] == self.remote and path == "/experiments":
+                    return {"experiment_id": bad_id, "status": "created"}
+                return original(vm, port, path, method, payload)
+            with self.subTest(child_id=bad_id), patch.object(multi_vm, "vm_request", side_effect=request):
+                response = self.launch()
+                self.assertEqual(response.status_code, 207)
+                self.assertEqual(response.json()["status"], "failed")
+                self.assertTrue(all(record["status"] == "completed"
+                    for record in self.agents.records.get("local", {}).values()))
 
     def test_one_request_launches_both_in_parallel_and_tracks_each_child(self):
         self.agents.barrier = threading.Barrier(2)
@@ -162,6 +219,21 @@ class MultiVMTests(unittest.TestCase):
         self.assertEqual(done["status"], "completed")
         self.assertTrue(done["ended_at"])
         self.assertEqual(self.client.delete("/vms/" + self.remote).status_code, 200)
+
+    def test_every_failure_type_launches_and_stops_on_both_vms(self):
+        for kind, parameters in (("cpu", {"cpu_percent": 10, "duration_seconds": 15}),
+                                 ("memory", {"memory_mb": 128, "duration_seconds": 15}),
+                                 ("latency", {"latency_ms": 100}),
+                                 ("packet_loss", {"packet_loss_percent": 10})):
+            with self.subTest(failure_type=kind):
+                response = self.client.post("/experiments/launch", json={**self.body, "failure_type": kind, "parameters": parameters})
+                self.assertEqual(response.status_code, 201)
+                batch = response.json()
+                self.assertEqual(len(batch["members"]), 2)
+                for member in batch["members"]:
+                    self.assertEqual(self.agents.records[member["vm_id"]][member["experiment_id"]]["parameters"], parameters)
+                stopped = self.client.post("/experiment-batches/" + batch["batch_id"] + "/stop")
+                self.assertEqual(stopped.json()["status"], "stopped")
 
     def test_children_finishing_at_different_times_keep_batch_running(self):
         batch = self.launch().json()
@@ -316,6 +388,16 @@ class MultiVMTests(unittest.TestCase):
                 vm_request(vm, 8008, "/metrics/latest")
         self.assertFalse(session.trust_env)
         self.assertFalse(session.request.call_args.kwargs["allow_redirects"])
+
+    def test_transport_classifies_invalid_json_as_bad_gateway(self):
+        session = MagicMock()
+        session.request.return_value.status_code = 200
+        session.request.return_value.json.side_effect = requests.exceptions.JSONDecodeError("bad JSON", "<html>", 0)
+        with patch("vm_registry.requests.Session") as factory:
+            factory.return_value.__enter__.return_value = session
+            with self.assertRaises(HTTPException) as error:
+                vm_request({"name": "Clone", "is_local": True}, 8008, "/metrics/latest")
+        self.assertEqual(error.exception.status_code, 502)
 
 
 if __name__ == "__main__":

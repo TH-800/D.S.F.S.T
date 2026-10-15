@@ -12,6 +12,9 @@ and select the VMs navigation page. This page uses live backend services.
 2. Choose a VM in "VM measurements" to read that VM's stored CPU, memory and
    network readings. Offline/unavailable targets report an error; the API
    does not substitute another VM's readings.
+   Missing metric storage returns HTTP 503. Malformed readings or history
+   for the wrong measurement/window return HTTP 502. A working database
+   without samples may return null readings until the metrics writer runs.
 
 3. Select one or more VM targets, a failure type and parameters, then launch.
    One request preflights all targets and creates a tracked batch. It creates
@@ -35,6 +38,10 @@ no health requests. Changing modes clears the previous connection result.
 VM controls ignore repeated submissions while an action is pending. The
 batch list includes up to 50 active runs alongside the 20 most recent runs,
 so recent completed experiments do not hide an older active batch.
+The selection is limited to 16 targets. Changing the measurement VM cancels
+the old request, and readings with the wrong VM ID are rejected. Metric
+polling waits for a response before scheduling the next request. Read
+requests have a 30-second deadline; actions allow up to two minutes.
 
 ENDPOINTS
 ---------
@@ -107,6 +114,12 @@ stack and waits up to twelve minutes for startup, database connections and
 fresh stored metrics. Database health checks allow slower VM cold starts.
 Internet and sudo access are needed during installation. Existing credentials/data are retained.
 The setup refuses to interrupt a known active experiment or batch.
+The dsfst_readiness.py helper checks the dashboard and all 11 backend routes
+through the same gateway used by the browser, MongoDB/Redis connections,
+the VM registry, and fresh CPU, memory and network data. A failed check
+reports the last problem and keeps setup from printing a success message.
+To check an installed stack without reinstalling it:
+    python3 dsfst_readiness.py --timeout 0
 
 For a new VM's Windows browser exposure, install Guest Additions and run:
     .\enable_vm_browser.bat -VmName "My Ubuntu VM" -GuestUser "myuser"
@@ -120,6 +133,16 @@ LIVE VALIDATION
 Backend tests:
     .venv/bin/python -m pip install -r tests/requirements.txt
     .venv/bin/python -m unittest discover -s tests -v
+
+Frontend and gateway tests, from dsft-frontend:
+    npm run check
+    npm test
+    npm run build
+
+The automated setup tests use a real HTTP fixture for readiness and fake
+host commands for the setup workflow. They check active-work refusal,
+installation failure, startup recovery, missing backends, database failures
+and stale/invalid measurements without changing the host installation.
 
 Windows live multi-VM test (both VMs must be available, no active experiment):
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\live_multi_vm_smoke.ps1 -CoordinatorUrl http://192.168.56.10:3000 -RemoteUrl http://192.168.56.11:3000

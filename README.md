@@ -146,11 +146,16 @@ LinuxCpuStatus.py LinuxMemoryStatus.py experiment_orchestrator.py metrics_api.py
 metrics_writer.py reports_aggregator.py vm_registry.py vm_metrics.py multi_vm.py InjectionScripts database` checks Python
 syntax. From `dsft-frontend/`, run `npm ci`, `npm run check`, and
 `npm test`, and `npm run build`. The frontend tests cover monitor health,
-VM registration/removal, selected-VM metrics, multi-VM launch/stop, duplicate
-submissions and the browser gateway. They use simulated services.
+VM registration/removal, selected-VM metrics and cancellation, multi-VM
+launch/stop, duplicate submissions, target limits and the browser gateway.
+They use simulated services.
 Install `tests/requirements.txt` into the project virtual
 environment, then run `python -m unittest discover -s tests -v`. The tests
 mock system commands and database services; they do not inject failures.
+Setup tests also run the setup entry point with fake host commands and check
+its readiness helper against an HTTP fixture. On an installed Ubuntu VM,
+`python3 dsfst_readiness.py --timeout 0` checks the dashboard, all backends,
+database access and fresh stored metrics without reinstalling anything.
 On Linux, `python3 tests/linux_network_lock_smoke.py` also checks the file lock.
 Run `powershell -File tests/test_vm_network.ps1` from the project root.
 `tests/live_vm_browser_smoke.ps1 -BaseUrl http://<VM-IP>:3000`

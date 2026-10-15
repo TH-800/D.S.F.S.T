@@ -218,3 +218,58 @@ test("older active batches remain visible alongside recent history without dupli
     assert.equal((await fetchVmBatches()).filter(batch => batch.batch_id === older.batch_id).length, 1);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("VM selection cancels old metrics, rejects another VM's readings, and limits launch targets", async () => {
+  const view = mount();
+  const originalFetch = globalThis.fetch;
+  const vms = ["local", "remote", ...Array.from({ length: 16 }, (_, i) => `extra-${i}`)]
+    .map(id => ({ vm_id: id, name: id, base_url: "http://192.168.56.11:3000", is_local: id === "local" }));
+  const pending: AbortSignal[] = [];
+  globalThis.fetch = async (input, options) => {
+    const url = String(input);
+    if (url === "/api/8009/vms") return reply(vms);
+    if (url.includes("/experiment-batches?")) return reply([]);
+    if (url.includes("/vms/remote/metrics")) return reply({ vm_id: "another-vm", cpu: { cpu_usage_percent: 99 } });
+    if (url.includes("/vms/local/metrics")) return new Promise<Response>((_resolve, reject) => {
+      const signal = options!.signal!;
+      pending.push(signal);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    await view.render(<VMs />);
+    await act(async () => {
+      const select = view.container.querySelector<HTMLSelectElement>("#metrics-vm")!;
+      select.value = "remote";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    assert.equal(pending[0].aborted, true);
+    assert.match(view.container.textContent!, /different VM/);
+    assert.doesNotMatch(view.container.textContent!, /99.0%/);
+    const targets = [...view.container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    for (const checkbox of targets.slice(1)) await act(async () => checkbox.click());
+    assert.equal(targets.filter(item => item.checked).length, 16);
+    assert.equal(targets.filter(item => item.disabled).length, 2);
+    await act(async () => targets[1].click());
+    assert.equal(targets.filter(item => item.disabled).length, 0);
+  } finally { await view.close(); globalThis.fetch = originalFetch; }
+});
+
+test("VM requests use deadlines and preserve useful gateway error messages", async () => {
+  const { fetchVMs, registerVM, fetchVmMetrics } = await import("../client/src/lib/vm-api");
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  const deadlines: number[] = [];
+  AbortSignal.timeout = milliseconds => { deadlines.push(milliseconds); return new AbortController().signal; };
+  globalThis.fetch = async () => reply({ error: "VM API 8009 is unavailable" }, 502);
+  try {
+    await assert.rejects(fetchVMs(), /VM API 8009 is unavailable/);
+    globalThis.fetch = async () => new Response("backend unavailable", { status: 503 });
+    await assert.rejects(fetchVMs(), /HTTP 503/);
+    await assert.rejects(registerVM("Clone", "http://192.168.56.11:3000"), /HTTP 503/);
+    globalThis.fetch = async () => new Response("<html>wrong response</html>");
+    await assert.rejects(fetchVmMetrics("local"), /invalid response/);
+    assert.deepEqual(deadlines, [30000, 30000, 120000, 30000]);
+  } finally { globalThis.fetch = originalFetch; AbortSignal.timeout = originalTimeout; }
+});
