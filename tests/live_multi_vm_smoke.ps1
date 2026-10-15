@@ -157,7 +157,10 @@ try {
             foreach ($member in $stopped.members) {
                 $node = if ($member.vm.is_local) { $coordinator } else { $member.vm.base_url }
                 $monitor = Api $node '/api/8000/status'
-                if (@($monitor.active_experiments).Count) { throw "Injection remains active after $($specification.type) reset." }
+                $active = @($monitor.active_experiments | Where-Object { $null -ne $_ })
+                if ($active.Count -or $monitor.summary.total_active_experiments -ne 0 -or $monitor.state -eq 'running') {
+                    throw "Injection remains active after $($specification.type) reset on $($member.vm_name)."
+                }
             }
             $additional += @{failure_type=$specification.type;batch=$stopped;observations=$observations}
         }

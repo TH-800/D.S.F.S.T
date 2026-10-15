@@ -128,26 +128,45 @@ class LifecycleTests(unittest.TestCase):
         tracker.active_experiment_id = "exp-1"
         with (patch.object(metrics_writer, "upsert_experiment"),
               patch.object(metrics_writer, "log_event"),
-              patch.object(metrics_writer, "fetch_json", return_value={
-                  "state": "running", "active_experiment_id": "exp-1"}),
+              patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, {"state": "idle"}]),
               patch("requests.post") as post):
             tracker.handle_state(MagicMock(), "idle", [])
             self.assertTrue(post.call_args.args[0].endswith("/experiments/exp-1/stop"))
 
     def test_short_experiment_finishes_when_running_poll_was_missed(self):
         tracker = metrics_writer.StateTracker()
-        with (patch.object(metrics_writer, "fetch_json", return_value={
-                  "state": "running", "active_experiment_id": "exp-1"}),
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, {"state": "complete"}]),
               patch.object(metrics_writer.requests, "post") as post):
             tracker.handle_state(MagicMock(), "complete", [])
             self.assertTrue(post.call_args.args[0].endswith("/experiments/exp-1/stop"))
+
+    def test_old_idle_snapshot_does_not_stop_a_newly_running_child(self):
+        tracker = metrics_writer.StateTracker()
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "new-child"}, {
+                  "state": "running", "active_experiments": [{"type": "network_latency"}]}]),
+              patch.object(metrics_writer.requests, "post") as post,
+              patch.object(metrics_writer, "upsert_experiment") as upsert):
+            tracker.handle_state(MagicMock(), "complete", [])
+            post.assert_not_called()
+            upsert.assert_not_called()
+
+    def test_unavailable_confirmation_does_not_reset_a_running_child(self):
+        tracker = metrics_writer.StateTracker()
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, None]),
+              patch.object(metrics_writer.requests, "post") as post):
+            tracker.handle_state(MagicMock(), "idle", [])
+            post.assert_not_called()
 
     def test_failed_natural_reset_keeps_running_record(self):
         tracker = metrics_writer.StateTracker()
         tracker.last_state = "running"
         tracker.active_experiment_id = "exp-1"
-        with (patch.object(metrics_writer, "fetch_json", return_value={
-                  "state": "running", "active_experiment_id": "exp-1"}),
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, {"state": "complete"}]),
               patch.object(metrics_writer.requests, "post") as post,
               patch.object(metrics_writer, "upsert_experiment") as upsert):
             post.return_value.raise_for_status.side_effect = requests.HTTPError("reset failed")
