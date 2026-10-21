@@ -24,6 +24,7 @@ import BaseNetworkInfo as network_info
 import experiment_orchestrator as orchestrator
 import metrics_writer
 import network_rules
+import CPUStressInjection as cpu_injection
 
 
 class ParameterTests(unittest.TestCase):
@@ -127,26 +128,45 @@ class LifecycleTests(unittest.TestCase):
         tracker.active_experiment_id = "exp-1"
         with (patch.object(metrics_writer, "upsert_experiment"),
               patch.object(metrics_writer, "log_event"),
-              patch.object(metrics_writer, "fetch_json", return_value={
-                  "state": "running", "active_experiment_id": "exp-1"}),
+              patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, {"state": "idle"}]),
               patch("requests.post") as post):
             tracker.handle_state(MagicMock(), "idle", [])
             self.assertTrue(post.call_args.args[0].endswith("/experiments/exp-1/stop"))
 
     def test_short_experiment_finishes_when_running_poll_was_missed(self):
         tracker = metrics_writer.StateTracker()
-        with (patch.object(metrics_writer, "fetch_json", return_value={
-                  "state": "running", "active_experiment_id": "exp-1"}),
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, {"state": "complete"}]),
               patch.object(metrics_writer.requests, "post") as post):
             tracker.handle_state(MagicMock(), "complete", [])
             self.assertTrue(post.call_args.args[0].endswith("/experiments/exp-1/stop"))
+
+    def test_old_idle_snapshot_does_not_stop_a_newly_running_child(self):
+        tracker = metrics_writer.StateTracker()
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "new-child"}, {
+                  "state": "running", "active_experiments": [{"type": "network_latency"}]}]),
+              patch.object(metrics_writer.requests, "post") as post,
+              patch.object(metrics_writer, "upsert_experiment") as upsert):
+            tracker.handle_state(MagicMock(), "complete", [])
+            post.assert_not_called()
+            upsert.assert_not_called()
+
+    def test_unavailable_confirmation_does_not_reset_a_running_child(self):
+        tracker = metrics_writer.StateTracker()
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, None]),
+              patch.object(metrics_writer.requests, "post") as post):
+            tracker.handle_state(MagicMock(), "idle", [])
+            post.assert_not_called()
 
     def test_failed_natural_reset_keeps_running_record(self):
         tracker = metrics_writer.StateTracker()
         tracker.last_state = "running"
         tracker.active_experiment_id = "exp-1"
-        with (patch.object(metrics_writer, "fetch_json", return_value={
-                  "state": "running", "active_experiment_id": "exp-1"}),
+        with (patch.object(metrics_writer, "fetch_json", side_effect=[{
+                  "state": "running", "active_experiment_id": "exp-1"}, {"state": "complete"}]),
               patch.object(metrics_writer.requests, "post") as post,
               patch.object(metrics_writer, "upsert_experiment") as upsert):
             post.return_value.raise_for_status.side_effect = requests.HTTPError("reset failed")
@@ -215,6 +235,17 @@ class NetworkRuleTests(unittest.TestCase):
 
 
 class MonitoringTests(unittest.TestCase):
+    def test_cpu_injection_honors_requested_load_on_single_and_multi_core_vms(self):
+        for cores in (1, 4):
+            with self.subTest(cores=cores), patch.object(cpu_injection, "cpu_process", None), \
+                 patch.object(cpu_injection.os, "cpu_count", return_value=cores), \
+                 patch.object(cpu_injection.subprocess, "Popen") as start:
+                result = cpu_injection.inject_cpu_stress(10, 15)
+                command = start.call_args.args[0]
+                self.assertEqual(command[command.index("--cpu") + 1], str(cores))
+                self.assertEqual(command[command.index("--cpu-load") + 1], "10")
+                self.assertEqual(result["cpu_requested_percent"], 10)
+
     def test_throughput_uses_counters_without_downloading(self):
         network_info._throughput_sample = None
         network_info._throughput_kbps = 0

@@ -244,10 +244,18 @@ export async function fetchNetworkData(): Promise<NetworkData> {
 }
 
 // fetches health check from ExperimentMonitor.py running on port 8000
-export async function fetchHealthData(): Promise<HealthData> {
-  const res = await fetch(`${getUrl("monitor")}/health`);
+export async function fetchHealthData(signal?: AbortSignal): Promise<HealthData> {
+  const timeout = AbortSignal.timeout(8000);
+  const res = await fetch(`${getUrl("monitor")}/health`, {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error("Failed to fetch health data");
-  return res.json();
+  const data = await res.json();
+  if (data?.status !== "ok" || data?.service !== "ExperimentMonitor") {
+    throw new Error("Monitor health check failed");
+  }
+  return data;
 }
 
 // fetches full machine status from ExperimentMonitor.py running on port 8000

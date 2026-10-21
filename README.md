@@ -145,13 +145,20 @@ With browser access enabled, Windows can also call
 LinuxCpuStatus.py LinuxMemoryStatus.py experiment_orchestrator.py metrics_api.py
 metrics_writer.py reports_aggregator.py vm_registry.py vm_metrics.py multi_vm.py InjectionScripts database` checks Python
 syntax. From `dsft-frontend/`, run `npm ci`, `npm run check`, and
-`npm run build`. Install `tests/requirements.txt` into the project virtual
+`npm test`, and `npm run build`. The frontend tests cover monitor health,
+VM registration/removal, selected-VM metrics and cancellation, multi-VM
+launch/stop, duplicate submissions, target limits and the browser gateway.
+They use simulated services.
+Install `tests/requirements.txt` into the project virtual
 environment, then run `python -m unittest discover -s tests -v`. The tests
 mock system commands and database services; they do not inject failures.
+Setup tests also run the setup entry point with fake host commands and check
+its readiness helper against an HTTP fixture. On an installed Ubuntu VM,
+`python3 dsfst_readiness.py --timeout 0` checks the dashboard, all backends,
+database access and fresh stored metrics without reinstalling anything.
 On Linux, `python3 tests/linux_network_lock_smoke.py` also checks the file lock.
-For the browser gateway, run `node --import tsx --test server/api-proxy.test.ts`
-from `dsft-frontend/`, and `powershell -File tests/test_vm_network.ps1` from
-the project root. `tests/live_vm_browser_smoke.ps1 -BaseUrl http://<VM-IP>:3000`
+Run `powershell -File tests/test_vm_network.ps1` from the project root.
+`tests/live_vm_browser_smoke.ps1 -BaseUrl http://<VM-IP>:3000`
 checks the running VM over HTTP; add `-RunExperiment` to test a bounded CPU
 experiment and read its stored results.
 

@@ -1,9 +1,10 @@
-# Live Windows-to-Ubuntu multi-VM test. Creates short 10% CPU experiments.
+# Live Windows-to-Ubuntu multi-VM test. Optionally checks all four fault types.
 # Both VM apps must already be running and idle. Existing registrations are kept.
 param(
     [string]$CoordinatorUrl = 'http://192.168.56.10:3000',
     [string]$RemoteUrl = 'http://192.168.56.11:3000',
-    [string]$OutputFile
+    [string]$OutputFile,
+    [switch]$AllFailureTypes
 )
 $ErrorActionPreference = 'Stop'
 $coordinator = $CoordinatorUrl.TrimEnd('/')
@@ -128,11 +129,47 @@ try {
     $manual = Api $coordinator "/api/8009/experiment-batches/$($manual.batch_id)/stop" 'POST' @{}
     if ($manual.status -ne 'stopped') { throw "Batch did not reset: $($manual.status)." }
     Assert-Finished $manual
+    $additional = @()
+    if ($AllFailureTypes) {
+        foreach ($specification in @(
+            @{type='memory';parameters=@{memory_mb=128;duration_seconds=30};detected='memory_stress'},
+            @{type='latency';parameters=@{latency_ms=50};detected='network_latency'},
+            @{type='packet_loss';parameters=@{packet_loss_percent=1};detected='packet_loss'}
+        )) {
+            $batch = Api $coordinator '/api/8009/experiments/launch' 'POST' @{
+                name="$prefix $($specification.type)";failure_type=$specification.type;
+                vm_ids=@('local',$registration.vm_id);parameters=$specification.parameters
+            }
+            Assert-Running $batch
+            $observations = @()
+            foreach ($member in $batch.members) {
+                $node = if ($member.vm.is_local) { $coordinator } else { $member.vm.base_url }
+                $monitor = Api $node '/api/8000/status'
+                if ($specification.detected -notin @($monitor.active_experiments.type)) {
+                    throw "The host monitor did not detect $($specification.type) on $($member.vm_name)."
+                }
+                $observations += @{vm_id=$member.vm_id;monitor=$monitor}
+            }
+            Start-Sleep -Seconds 3
+            $stopped = Api $coordinator "/api/8009/experiment-batches/$($batch.batch_id)/stop" 'POST' @{}
+            if ($stopped.status -ne 'stopped') { throw "$($specification.type) did not reset on both VMs." }
+            Assert-Finished $stopped
+            foreach ($member in $stopped.members) {
+                $node = if ($member.vm.is_local) { $coordinator } else { $member.vm.base_url }
+                $monitor = Api $node '/api/8000/status'
+                $active = @($monitor.active_experiments | Where-Object { $null -ne $_ })
+                if ($active.Count -or $monitor.summary.total_active_experiments -ne 0 -or $monitor.state -eq 'running') {
+                    throw "Injection remains active after $($specification.type) reset on $($member.vm_name)."
+                }
+            }
+            $additional += @{failure_type=$specification.type;batch=$stopped;observations=$observations}
+        }
+    }
     $result = @{
         ok=$true;checked_at=[DateTimeOffset]::UtcNow.ToString('o')
         coordinator_url=$coordinator;remote_url=$remote;metrics=$readings
         natural_batch=$natural;stopped_batch=$manual;reports=$reports
-        temporary_registration=$created
+        temporary_registration=$created;additional_failure_types=$additional
     }
 } finally {
     # Find only this test's batches, including a launch whose HTTP reply was lost.

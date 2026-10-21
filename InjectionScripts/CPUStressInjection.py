@@ -14,6 +14,7 @@ import subprocess # import for running external commands via python
 import os # import for working with system level operations 
 from datetime import datetime
 import threading
+from process_control import stop_owned_process
 
 app = FastAPI()
 
@@ -66,8 +67,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     cpu_cores = os.cpu_count() or 1 #small fix so incase somehow there are like 0 cpu cores it defaults 1 without breaking anything i hope
     
-    # gets the number of cpu cores and divides them into a percentage and then finds the number of cpus to test out
-    # Preserve Momin's local fix: apply the requested load across all cores.
+    # Apply the requested load to each core, including single-core VMs.
     workers = cpu_cores
 
     # commands stored in a list string variable so they can be executed in the
@@ -84,7 +84,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
 
     # Start stress test
     try:
-        cpu_process = subprocess.Popen(command)
+        cpu_process = subprocess.Popen(command, start_new_session=True)
         threading.Thread(target=cpu_process.wait, daemon=True).start()
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
@@ -114,13 +114,9 @@ def reset_cpu_stress():
     
     global cpu_process
 
-    if cpu_process and cpu_process.poll() is None:
-        cpu_process.kill()  # SIGKILL — terminate() can leave stress-ng running, kill() doesn't SO DONT USE KILL()
-        try:
-            cpu_process.wait(timeout=3)
-        except Exception:
-            pass  # if it times out, it'll be cleaned up by the OS and if does not i dont know then
-        cpu_process = None
-        return {"message": "CPU stress stopped"}
-
-    return {"message": "No CPU stress running"}
+    try:
+        stopped = stop_owned_process(cpu_process)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        raise HTTPException(502, "CPU reset could not confirm stopped workers") from error
+    cpu_process = None
+    return {"message": "CPU stress stopped" if stopped else "No CPU stress running"}

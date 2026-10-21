@@ -157,6 +157,8 @@ class BatchManager:
                 result = vm_request(member["vm"], 8009, "/experiments", "POST",
                                     {"name": batch["name"], "failure_type": body.failure_type,
                                      "target_container": "host", "parameters": parameters})
+                if not isinstance(result.get("experiment_id"), str):
+                    raise HTTPException(502, "VM did not return a valid child experiment ID")
                 child_id = str(uuid.UUID(result["experiment_id"]))
                 member["experiment_id"] = child_id
                 # Persist the child identity BEFORE starting it, so stop survives a restart.

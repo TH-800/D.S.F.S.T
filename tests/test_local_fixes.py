@@ -39,19 +39,16 @@ class LocalFixTests(unittest.TestCase):
             self.assertTrue(popen.call_args.kwargs['start_new_session'])
             thread.return_value.start.assert_called_once()
 
-    def test_memory_reset_escalates_only_its_group(self):
+    def test_memory_reset_waits_for_confirmed_worker_shutdown(self):
         proc = MagicMock(pid=12345)
-        proc.poll.return_value = None
-        proc.wait.side_effect = [subprocess.TimeoutExpired('stress-ng', 5), None]
-        with patch.object(memory, 'memory_process', proc), patch.object(memory.os, 'killpg') as killpg:
+        with patch.object(memory, 'memory_process', proc), patch.object(memory, 'stop_owned_process', return_value=True) as stop:
             self.assertEqual(memory.reset_memory_stress()['message'], 'Memory stress stopped')
-            self.assertEqual([call.args for call in killpg.call_args_list], [(12345, signal.SIGTERM), (12345, signal.SIGKILL)])
+            stop.assert_called_once_with(proc)
             self.assertIsNone(memory.memory_process)
 
     def test_failed_reset_keeps_process_reference(self):
         proc = MagicMock(pid=12345)
-        proc.poll.return_value = None
-        with patch.object(memory, 'memory_process', proc), patch.object(memory.os, 'killpg', side_effect=PermissionError()):
+        with patch.object(memory, 'memory_process', proc), patch.object(memory, 'stop_owned_process', side_effect=RuntimeError('Worker still running')):
             with self.assertRaises(HTTPException) as error:
                 memory.reset_memory_stress()
             self.assertEqual(error.exception.status_code, 502)

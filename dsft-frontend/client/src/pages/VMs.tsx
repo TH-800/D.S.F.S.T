@@ -25,7 +25,7 @@ function message(error: unknown) {
   return error instanceof Error ? error.message : "The request failed";
 }
 function value(value: number | undefined, suffix: string) {
-  return value === undefined ? "Unavailable" : value.toFixed(1) + suffix;
+  return typeof value !== "number" || !Number.isFinite(value) ? "Unavailable" : value.toFixed(1) + suffix;
 }
 
 export default function VMs() {
@@ -46,6 +46,7 @@ export default function VMs() {
   const [connectionError, setConnectionError] = useState("");
   const [busy, setBusy] = useState(false);
 
+
   const refresh = useCallback(async () => {
     const [known, runs] = await Promise.allSettled([fetchVMs(), fetchVmBatches()]);
     if (known.status === "fulfilled") {
@@ -65,19 +66,23 @@ export default function VMs() {
   }, [refresh]);
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let request: AbortController;
     setMetrics(null);
     setMetricsError("");
     const poll = async () => {
+      request = new AbortController();
       try {
-        const data = await fetchVmMetrics(metricVm);
+        const data = await fetchVmMetrics(metricVm, request.signal);
         if (!cancelled) { setMetrics(data); setMetricsError(""); }
       } catch (error) {
         if (!cancelled) { setMetrics(null); setMetricsError(message(error)); }
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 5000);
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 5000);
-    return () => { cancelled = true; clearInterval(timer); };
+    return () => { cancelled = true; clearTimeout(timer); request?.abort(); };
   }, [metricVm]);
 
   async function action(operation: () => Promise<unknown>, success?: string) {
@@ -93,7 +98,10 @@ export default function VMs() {
       setError(message(error));
       toast({ title: "VM operation not confirmed", description: message(error), variant: "destructive" });
     }
-    finally { await refresh(); setBusy(false); actionPending.current = false; }
+    finally {
+      try { await refresh(); }
+      finally { setBusy(false); actionPending.current = false; }
+    }
   }
   function add(event: FormEvent) {
     event.preventDefault();
@@ -162,7 +170,7 @@ export default function VMs() {
       <form onSubmit={launch} className="space-y-4">
         <fieldset disabled={busy} className="flex flex-wrap gap-4"><legend className="text-sm mb-2">Targets</legend>
           {vms.map(vm => <label key={vm.vm_id} className="flex items-center gap-2 text-sm">
-            <input type="checkbox" disabled={!selected.includes(vm.vm_id) && selected.length >= 16} checked={selected.includes(vm.vm_id)} onChange={e => setSelected(old => e.target.checked ? [...old, vm.vm_id] : old.filter(id => id !== vm.vm_id))} />{vm.name}
+            <input type="checkbox" disabled={!selected.includes(vm.vm_id) && selected.length >= 16} checked={selected.includes(vm.vm_id)} onChange={e => setSelected(old => e.target.checked ? (old.length < 16 ? [...old, vm.vm_id] : old) : old.filter(id => id !== vm.vm_id))} />{vm.name}
           </label>)}
         </fieldset>
         {vms.length === 0 && <p className="text-sm">No VMs available. Check the connection or register a VM above.</p>}

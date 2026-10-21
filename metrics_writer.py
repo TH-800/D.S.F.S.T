@@ -228,6 +228,12 @@ class StateTracker:
                     return
                 if orch and orch.get("state") == "running" and orch.get("active_experiment_id"):
                     exp_id = orch["active_experiment_id"]
+                    # The first snapshot can predate this child's launch. Check
+                    # again after reading its running state before resetting it.
+                    confirmed = fetch_json(STATUS_URL, timeout=3)
+                    if (not confirmed or confirmed.get("state") not in ("complete", "idle")
+                            or confirmed.get("active_experiments")):
+                        return
                     response = requests.post(
                         f"{ORCHESTRATOR_URL}/experiments/{exp_id}/stop", timeout=12)
                     response.raise_for_status()

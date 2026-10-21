@@ -11,10 +11,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 import subprocess
 import threading
-import signal
 import psutil
 from datetime import datetime
 import os
+from process_control import stop_owned_process
 app = FastAPI()
 
 app.add_middleware(
@@ -125,24 +125,9 @@ def reset_memory_stress():
     
     global memory_process
 
-    proc = memory_process
-    if proc is None or proc.poll() is not None:
-        memory_process = None
-        return {"message": "No memory stress running"}
     try:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            proc.wait(timeout=5)
-    except Exception:
-        raise HTTPException(status_code=502, detail="Memory reset failed")
+        stopped = stop_owned_process(memory_process)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        raise HTTPException(502, "Memory reset could not confirm stopped workers") from error
     memory_process = None
-    return {"message": "Memory stress stopped"}
+    return {"message": "Memory stress stopped" if stopped else "No memory stress running"}
