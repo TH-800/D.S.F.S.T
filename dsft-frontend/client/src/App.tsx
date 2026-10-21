@@ -21,6 +21,7 @@ import Experiments from "@/pages/Experiments";
 import Logs from "@/pages/Logs";
 import Reports from "@/pages/Reports";
 import NotFound from "@/pages/not-found";
+import FirstUseGuide from "@/components/FirstUseGuide";
 import VMs from "@/pages/VMs";
 
 // sets up all the routes for the app
@@ -88,7 +89,7 @@ function App() {
                   {/* top header bar with sidebar toggle and theme switch */}
                   <header className="flex items-center justify-between gap-2 px-4 py-2 border-b bg-background/80 backdrop-blur-sm">
                     <SidebarTrigger data-testid="button-sidebar-toggle" />
-                    <ThemeToggle />
+                    <div className="flex items-center gap-2"><FirstUseGuide /><ThemeToggle /></div>
                   </header>
                   {/* main content area - scrollable */}
                   <main className="flex-1 overflow-auto p-6">

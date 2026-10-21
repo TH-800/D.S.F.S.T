@@ -18,6 +18,6 @@ await build({
   jsx: "automatic",
 });
 const environment = pathToFileURL(resolve(directory, "test-environment.mjs")).href;
-const result = spawnSync(process.execPath, ["--import", environment, "--test", outfile], { stdio: "inherit" });
+const result = spawnSync(process.execPath, ["--import", environment, resolve(outfile)], { stdio: "inherit" });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

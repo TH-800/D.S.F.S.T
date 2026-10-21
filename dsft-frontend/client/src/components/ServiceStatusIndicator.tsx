@@ -1,53 +1,37 @@
-import { useEffect, useState } from "react";
-import { fetchHealthData } from "@/lib/api";
+// SCRUM-12: a reusable display component, not a health-check client.
+// The caller supplies the latest reachability result. Keeping network requests
+// outside this component lets it work with the monitor, mock data or SCRUM-13.
+// null means no result yet; it must not imply that a service is online.
+import React from "react";
 
-type Connection = "checking" | "online" | "offline";
-
-function LiveMonitorStatus() {
-  const [connection, setConnection] = useState<Connection>("checking");
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let request: AbortController;
-
-    async function poll() {
-      request = new AbortController();
-      try {
-        await fetchHealthData(request.signal);
-        if (!cancelled) setConnection("online");
-      } catch {
-        if (!cancelled) setConnection("offline");
-      } finally {
-        if (!cancelled) timer = setTimeout(poll, 5000);
-      }
-    }
-
-    void poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      request?.abort();
-    };
-  }, []);
-
-  const color = connection === "online" ? "bg-emerald-500" :
-    connection === "offline" ? "bg-red-500" : "bg-yellow-500";
-  const label = connection === "checking" ? "Checking monitor" : `Monitor ${connection}`;
-
-  return (
-    <span role="status" aria-live="polite" data-testid="monitor-health" className="inline-flex items-center gap-2 text-sm">
-      <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${color}`} />
-      {label}
-    </span>
-  );
+export interface ServiceStatusIndicatorProps {
+  online: boolean | null;
+  label?: string;
+  mock?: boolean;
 }
 
-export default function ServiceStatusIndicator({ isLiveMode }: { isLiveMode: boolean }) {
-  // Unmount the live poller in mock mode so old requests cannot change its status.
-  return isLiveMode ? <LiveMonitorStatus /> : (
-    <span role="status" data-testid="monitor-health" className="text-sm text-muted-foreground">
-      Monitor simulated
+export default function ServiceStatusIndicator({
+  online,
+  label = "Service",
+  mock = false,
+}: ServiceStatusIndicatorProps) {
+  const status = online === null ? "Not checked" : online ? "Online" : "Unreachable";
+  const color = online === null
+    ? "bg-slate-400"
+    : online ? "bg-emerald-500" : "bg-red-500";
+
+  return (
+    <span
+      className="inline-flex items-center gap-2 text-sm"
+      role="status"
+      aria-label={`${label}: ${status}${mock ? " (simulated)" : ""}`}
+      data-testid="service-status-indicator"
+      data-state={online === null ? "unknown" : online ? "online" : "offline"}
+    >
+      {/* Text accompanies the colored dot so color is never the only signal. */}
+      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${color}`} aria-hidden="true" />
+      <span>{label}</span>
+      <span className="text-muted-foreground">{status}{mock ? " (simulated)" : ""}</span>
     </span>
   );
 }

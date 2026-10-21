@@ -12,7 +12,7 @@
 //   - MetricsAPI (MongoDB/InfluxDB reads) -> port 8008
 //   - ExperimentOrchestrator (state machine for experiments) -> port 8009
 //   - ReportsAggregator (aggregation queries) -> port 8010
-// when the backend scripts arent running we fall back to mock data so the demo still works
+// Mock data is used only when the user explicitly selects Mock mode.
 
 // The VM web server forwards these paths to its local Python services.
 // Relative URLs work both inside Linux and from a Windows browser.
@@ -206,10 +206,13 @@ export function getMockStatusData(): StatusData {
       "8005": { script: "NetworkLatencyInjection.py", port: 8005, online: true, is_injection_service: true },
       "8006": { script: "PacketLossInjection.py", port: 8006, online: true, is_injection_service: true },
       "8007": { script: "MemoryStressInjection.py", port: 8007, online: true, is_injection_service: true },
+      "8008": { script: "metrics_api.py", port: 8008, online: true, is_injection_service: false },
+      "8009": { script: "experiment_orchestrator.py", port: 8009, online: true, is_injection_service: false },
+      "8010": { script: "reports_aggregator.py", port: 8010, online: true, is_injection_service: false },
     },
     summary: {
       total_active_experiments: 0,
-      services_online: 7,
+      services_online: 10,
       injection_services_online: 4,
     },
     message: "No injection services running. System is idle.",
@@ -256,10 +259,15 @@ export async function fetchHealthData(signal?: AbortSignal): Promise<HealthData>
 }
 
 // fetches full machine status from ExperimentMonitor.py running on port 8000
-export async function fetchStatusData(): Promise<StatusData> {
-  const res = await fetch(`${getUrl("monitor")}/status`);
+export async function fetchStatusData(signal?: AbortSignal): Promise<StatusData> {
+  const timeout = AbortSignal.timeout(8000);
+  const res = await fetch(`${getUrl("monitor")}/status`, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
   if (!res.ok) throw new Error("Failed to fetch status data");
-  return res.json();
+  const data = await res.json();
+  if (!data || !data.services || typeof data.services !== "object" || !data.summary) {
+    throw new Error("Invalid monitor response");
+  }
+  return data;
 }
 
 // --- injection endpoints (POST requests to start chaos experiments) ---
@@ -555,7 +563,9 @@ export async function startExperiment(
     body: JSON.stringify(params ? { parameters: params } : {}),
   });
   await requireOk(res, "Could not start experiment");
-  return res.json();
+  const result = await res.json();
+  if (result.status !== "running") throw new Error("The backend did not confirm the experiment started. Check its state before retrying.");
+  return result;
 }
 
 // tells the orchestrator to stop a running experiment
@@ -564,7 +574,9 @@ export async function stopExperiment(id: string): Promise<StopExperimentResponse
     method: "POST",
   });
   await requireOk(res, "Could not stop experiment");
-  return res.json();
+  const result = await res.json();
+  if (result.status !== "completed") throw new Error("The backend did not confirm the reset. Check the experiment state.");
+  return result;
 }
 
 // emergency stop - kills ALL running injections immediately

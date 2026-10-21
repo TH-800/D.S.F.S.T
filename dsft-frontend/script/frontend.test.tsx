@@ -4,7 +4,7 @@ import { act, type ReactNode } from "react";
 
 // Load React DOM after installing the browser globals, including input events.
 const { createRoot } = await import("react-dom/client");
-const { default: ServiceStatusIndicator } = await import("../client/src/components/ServiceStatusIndicator");
+const { default: ServiceStatusIndicator } = await import("../client/src/components/MonitorHealthIndicator");
 const { default: VMs } = await import("../client/src/pages/VMs");
 const { default: Dashboard } = await import("../client/src/pages/Dashboard");
 const { AppProvider } = await import("../client/src/lib/store");
@@ -187,13 +187,15 @@ test("VM controls persist registrations, scope measurements and launch/stop sele
     assert.equal(removals.length, 1);
     const checkbox = [...view.container.querySelectorAll('input[type="checkbox"]')].find(item => item.parentElement?.textContent === "Clone")!;
     await click(checkbox);
-    const launchForm = button("Launch experiment").closest("form")!;
+    const localCheckbox = [...view.container.querySelectorAll('input[type="checkbox"]')].find(item => item.parentElement?.textContent === "Local VM")!;
+    await click(localCheckbox);
+    const launchForm = button("Launch on 2 VM(s)").closest("form")!;
     await act(async () => {
       launchForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       launchForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
     assert.equal(launches.length, 1, "rapid submissions must send only one launch");
-    assert.deepEqual(launches[0].vm_ids, ["local", "remote"]);
+    assert.deepEqual([...launches[0].vm_ids].sort(), ["local", "remote"]);
     assert.deepEqual(launches[0].parameters, { cpu_percent: 10, duration_seconds: 15 });
     batches = [{ batch_id: "batch-1", name: "two VMs", status: "running", members: [local, remote].map(vm => ({ vm, vm_id: vm.vm_id, vm_name: vm.name, status: "running" })) }];
     await act(async () => finishLaunch!(reply(batches[0], 201)));
@@ -272,4 +274,34 @@ test("VM requests use deadlines and preserve useful gateway error messages", asy
     await assert.rejects(fetchVmMetrics("local"), /invalid response/);
     assert.deepEqual(deadlines, [30000, 30000, 120000, 30000]);
   } finally { globalThis.fetch = originalFetch; AbortSignal.timeout = originalTimeout; }
+});
+
+
+test("live logs show stored records, isolate mock entries, and report database failures", async () => {
+  const { default: Logs } = await import("../client/src/pages/Logs");
+  const { useAppState } = await import("../client/src/lib/store");
+  const view = mount();
+  const originalFetch = globalThis.fetch;
+  let fail = false;
+  globalThis.fetch = async () => fail ? reply({ detail: "offline" }, 503) : reply([
+    { log_id: "stored-1", timestamp: "2026-10-21T18:00:00Z", event_type: "injection_started", message: "Stored live event" },
+  ]);
+  function Mode() {
+    const { setIsLiveMode, addLog } = useAppState();
+    return <><button onClick={() => { addLog({ timestamp: "2026-10-21T17:00:00Z", eventType: "injection_started", message: "Simulated test event" }); setIsLiveMode(true); }}>Use live logs</button><Logs /></>;
+  }
+  try {
+    await view.render(<AppProvider><Mode /></AppProvider>);
+    await act(async () => view.container.querySelector("button")!.click());
+    assert.match(view.container.textContent!, /Stored live event/);
+    assert.doesNotMatch(view.container.textContent!, /Simulated test event/);
+    fail = true;
+    await act(async () => view.container.querySelector<HTMLButtonElement>('[data-testid="button-refresh-logs"]')!.click());
+    assert.match(view.container.querySelector('[role="alert"]')!.textContent!, /Live database logs are unavailable/);
+    assert.doesNotMatch(view.container.textContent!, /Stored live event|Simulated test event/);
+    fail = false;
+    await act(async () => view.container.querySelector<HTMLButtonElement>('[data-testid="button-refresh-logs"]')!.click());
+    assert.match(view.container.textContent!, /Stored live event/);
+    assert.equal(view.container.querySelector('[role="alert"]'), null);
+  } finally { await view.close(); globalThis.fetch = originalFetch; }
 });

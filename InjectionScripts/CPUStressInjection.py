@@ -13,6 +13,7 @@ import subprocess # import for running external commands via python
 # so we can pass shell commands to the console 
 import os # import for working with system level operations 
 from datetime import datetime
+import threading
 from process_control import stop_owned_process
 
 app = FastAPI()
@@ -84,6 +85,7 @@ def inject_cpu_stress(cpu_percent: int, duration: int):
     # Start stress test
     try:
         cpu_process = subprocess.Popen(command, start_new_session=True)
+        threading.Thread(target=cpu_process.wait, daemon=True).start()
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
     except Exception as error:

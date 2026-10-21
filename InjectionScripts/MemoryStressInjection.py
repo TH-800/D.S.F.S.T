@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 import subprocess
+import threading
+import psutil
 from datetime import datetime
 import os
 from process_control import stop_owned_process
@@ -67,6 +69,11 @@ def inject_memory_stress(memory_mb: int, duration: int):
     # as we can use this for testing in bash shell 
 
    # get number of CPU cores (fallback to 1 if None)
+    # Preserve the available-memory guard from Momin's Ubuntu copy.
+    available_mb = psutil.virtual_memory().available // (1024 * 1024)
+    allowed_mb = min(4096, available_mb // 2, max(0, available_mb - 512))
+    if memory_mb > allowed_mb:
+        return {"error": f"Requested {memory_mb} MB exceeds the current limit of {allowed_mb} MB; available memory is {available_mb} MB"}
     cpu_cores = os.cpu_count() or 1
 
     # use 1/4 of the  workers to prevent the rest of the cpus going crazy and spread em out 
@@ -88,6 +95,7 @@ def inject_memory_stress(memory_mb: int, duration: int):
     # Start stress test
     try:
         memory_process = subprocess.Popen(command, start_new_session=True)
+        threading.Thread(target=memory_process.wait, daemon=True).start()
     except FileNotFoundError:
         return {"error": "stress-ng not found please install it 'sudo apt install stress-ng'"}
     except Exception as error:

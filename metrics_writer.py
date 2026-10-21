@@ -109,7 +109,10 @@ def fetch_json(url: str, timeout: int = 4) -> dict | None:
     try:
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
-        return r.json()
+        data = r.json()
+        if isinstance(data, dict):
+            data["_collected_at"] = datetime.now(timezone.utc)
+        return data
     except requests.exceptions.ConnectionError:
         # service is offline this is expected when scripts aren't running SO GO RUN EM RunAll.py
         return None
@@ -128,7 +131,7 @@ def write_cpu_metric(write_api, cpu_data: dict):
         Point("cpu")
         .tag("container_id", container_id)
         .field("cpu_usage_percent", float(cpu_percent))
-        .time(datetime.now(timezone.utc), WritePrecision.NS)
+        .time(cpu_data.get("_collected_at") or datetime.now(timezone.utc), WritePrecision.NS)
     )
     write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
 
@@ -144,7 +147,7 @@ def write_memory_metric(write_api, mem_data: dict):
         .tag("container_id", container_id)
         .field("memory_used_mb",  float(memory_mb))
         .field("memory_percent",  float(memory_pct))
-        .time(datetime.now(timezone.utc), WritePrecision.NS)
+        .time(mem_data.get("_collected_at") or datetime.now(timezone.utc), WritePrecision.NS)
     )
     write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
 
@@ -162,7 +165,7 @@ def write_network_metric(write_api, net_data: dict):
         .field("latency_ms",          float(latency_ms))
         .field("packet_loss_percent", float(packet_loss))
         .field("throughput_kbps",     float(throughput))
-        .time(datetime.now(timezone.utc), WritePrecision.NS)
+        .time(net_data.get("_collected_at") or datetime.now(timezone.utc), WritePrecision.NS)
     )
     write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
 

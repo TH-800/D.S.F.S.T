@@ -8,8 +8,10 @@
     "build": "tsx script/build.ts",
     "start": "cross-env NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "test": "tsx script/test-frontend.ts && tsx --test server/api-proxy.test.ts",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test:frontend": "node --import tsx script/test-service-status.tsx && node --import tsx script/test-frontend.tsx && node --import tsx --test server/api-proxy.test.ts",
+    "test:ppp": "node --import tsx script/test-ppp.tsx",
+    "test": "node --import tsx script/test-frontend.ts && node --import tsx --test server/api-proxy.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -81,6 +83,7 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.18",
+    "@testing-library/react": "^16.3.3",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "^5.0.0",
     "@types/express-session": "^1.18.0",

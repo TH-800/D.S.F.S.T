@@ -78,16 +78,19 @@ export default function Logs() {
   const [filter, setFilter] = useState<EventFilter>("all");
   const [dbLogs, setDbLogs] = useState<DbLogEntry[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   // fetch persisted logs from MongoDB when in live mode
   const refreshDbLogs = useCallback(async () => {
     if (!isLiveMode) return;
     setIsRefreshing(true);
+    setLoadError("");
     try {
       const remote = await fetchDbLogs(200);
       setDbLogs(remote);
     } catch {
-      // database might not be running, thats fine
+      setDbLogs([]);
+      setLoadError("Live database logs are unavailable. Check the VM connection and try Refresh.");
     }
     setIsRefreshing(false);
   }, [isLiveMode]);
@@ -97,28 +100,15 @@ export default function Logs() {
     refreshDbLogs();
   }, [refreshDbLogs]);
 
-  // merge local session logs with persisted database logs
-  // we convert db logs to the same shape as local logs so the list looks uniform
-  // then deduplicate by timestamp+message to avoid showing the same event twice
+  // Keep simulated session entries out of the live database view.
   const mergedLogs = useMemo(() => {
-    if (!isLiveMode || dbLogs.length === 0) return logs;
-
-    // convert db logs to the local LogEntry shape
-    const converted: LogEntry[] = dbLogs.map((dbLog) => ({
+    if (!isLiveMode) return logs;
+    return dbLogs.map((dbLog): LogEntry => ({
       id: dbLog.log_id,
       timestamp: dbLog.timestamp,
       eventType: dbLog.event_type as LogEntry["eventType"],
       message: dbLog.message,
-    }));
-
-    // merge and deduplicate - use a set of "timestamp|message" to check for dupes
-    const seen = new Set(logs.map((l) => `${l.timestamp}|${l.message}`));
-    const unique = converted.filter((c) => !seen.has(`${c.timestamp}|${c.message}`));
-
-    // combine and sort newest first
-    return [...logs, ...unique].sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
+    })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [logs, dbLogs, isLiveMode]);
 
   // filter the logs based on what the user selected
@@ -169,6 +159,7 @@ export default function Logs() {
         </div>
       </div>
 
+      {isLiveMode && loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
       <Card data-testid="card-logs">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">

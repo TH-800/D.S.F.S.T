@@ -10,7 +10,9 @@
 # Run:
 #   python -m uvicorn metrics_api:app --host 127.0.0.1 --port 8008 --reload
 #
-# Endpoints (all read-only):
+# Endpoints (read-only except POST /presets):
+#   GET/POST /presets                     list/save experiment configurations
+#   GET /presets/{id}                     load a saved configuration
 #
 #   GET /experiments                      list all experiments, newest first
 #   GET /experiments/{id}                 single experiment document
@@ -595,6 +597,10 @@ def health():
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
+
+# SCRUM-16: configuration storage only; never invokes an injection.
+from saved_presets import register_preset_routes
+register_preset_routes(app, get_db, serialise)
 
 vm_registry = VMRegistry(lambda: get_db())
 app.include_router(build_metrics_router(
